@@ -266,6 +266,393 @@ cpu: kvm64
 - Backend API: TCP port 3000 (default)
 - Frontend: TCP port 5173 (development) or as configured
 
+### Debian 13 (Trixie) Installation
+
+Complete package installation for both bare metal and virtualized environments.
+
+#### Base System Packages (All Deployments)
+
+```bash
+# Update package list
+sudo apt-get update
+
+# Install build essentials for OB-UDPST
+sudo apt-get install -y \
+    build-essential \
+    cmake \
+    gcc \
+    g++ \
+    make \
+    pkg-config \
+    git
+
+# Install OpenSSL development libraries (required for OB-UDPST authentication)
+sudo apt-get install -y \
+    libssl-dev \
+    openssl
+
+# Install Node.js and npm (required for Web GUI + Backend)
+# Option 1: From Debian repositories (may be older version)
+sudo apt-get install -y nodejs npm
+
+# Option 2: Install latest LTS from NodeSource (recommended)
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Verify Node.js version (should be v18.x or higher)
+node --version
+npm --version
+
+# Install network utilities
+sudo apt-get install -y \
+    net-tools \
+    iproute2 \
+    ethtool \
+    iperf3 \
+    tcpdump \
+    wireshark-common \
+    netcat-openbsd
+
+# Install performance monitoring tools
+sudo apt-get install -y \
+    htop \
+    iotop \
+    nethogs \
+    iftop \
+    sysstat \
+    dstat
+
+# Install system utilities
+sudo apt-get install -y \
+    curl \
+    wget \
+    vim \
+    nano \
+    screen \
+    tmux \
+    rsync
+```
+
+#### Network Performance Optimization Packages
+
+```bash
+# Install tools for network stack tuning
+sudo apt-get install -y \
+    tuned \
+    irqbalance \
+    numactl
+
+# Install PCI utilities (useful for identifying NICs)
+sudo apt-get install -y \
+    pciutils \
+    usbutils \
+    lshw
+
+# Enable performance governor (for bare metal)
+sudo apt-get install -y cpufrequtils
+echo 'GOVERNOR="performance"' | sudo tee /etc/default/cpufrequtils
+sudo systemctl restart cpufrequtils
+
+# Enable irqbalance for multi-core systems
+sudo systemctl enable irqbalance
+sudo systemctl start irqbalance
+```
+
+#### Bare Metal Specific Packages
+
+```bash
+# Hardware monitoring and sensors
+sudo apt-get install -y \
+    lm-sensors \
+    smartmontools \
+    dmidecode
+
+# Detect hardware sensors
+sudo sensors-detect --auto
+
+# RAID utilities (if using hardware RAID)
+sudo apt-get install -y \
+    mdadm \
+    lvm2
+
+# NIC firmware and drivers (Intel)
+sudo apt-get install -y \
+    firmware-linux \
+    firmware-linux-nonfree \
+    firmware-misc-nonfree
+
+# Enable hardware timestamping support
+sudo ethtool -T eth0  # Replace eth0 with your interface
+```
+
+#### Proxmox VM Guest Packages
+
+```bash
+# Install QEMU Guest Agent (enables better VM management)
+sudo apt-get install -y qemu-guest-agent
+
+# Enable and start the agent
+sudo systemctl enable qemu-guest-agent
+sudo systemctl start qemu-guest-agent
+
+# Install VirtIO drivers and utilities
+sudo apt-get install -y \
+    virtio-win \
+    qemu-utils
+
+# Install cloud-init (optional, for automated provisioning)
+sudo apt-get install -y cloud-init
+
+# Disable unnecessary services to reduce overhead
+sudo systemctl disable bluetooth.service
+sudo systemctl disable cups.service
+sudo systemctl disable avahi-daemon.service
+
+# Optimize for VM environment
+echo "# VM optimizations" | sudo tee -a /etc/sysctl.conf
+echo "vm.swappiness = 10" | sudo tee -a /etc/sysctl.conf
+echo "vm.dirty_ratio = 10" | sudo tee -a /etc/sysctl.conf
+echo "vm.dirty_background_ratio = 5" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+```
+
+#### VMware VM Guest Packages
+
+```bash
+# Install open-vm-tools (VMware guest utilities)
+sudo apt-get install -y \
+    open-vm-tools \
+    open-vm-tools-desktop
+
+# Enable and start VMware tools
+sudo systemctl enable open-vm-tools
+sudo systemctl start open-vm-tools
+
+# Install VMware-specific network drivers (if needed)
+sudo apt-get install -y linux-headers-$(uname -r)
+
+# Verify VMware tools are running
+sudo systemctl status open-vm-tools
+```
+
+#### Network Stack Optimization (All Deployments)
+
+```bash
+# Create network tuning configuration
+sudo tee /etc/sysctl.d/99-udpst-network.conf <<EOF
+# Network buffer sizes
+net.core.rmem_max = 134217728
+net.core.wmem_max = 134217728
+net.core.rmem_default = 16777216
+net.core.wmem_default = 16777216
+net.ipv4.tcp_rmem = 4096 87380 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+
+# Network device queue length
+net.core.netdev_max_backlog = 250000
+net.core.netdev_budget = 3000
+net.core.netdev_budget_usecs = 8000
+
+# UDP buffer sizes
+net.ipv4.udp_rmem_min = 8192
+net.ipv4.udp_wmem_min = 8192
+
+# Connection tracking (if needed)
+net.netfilter.nf_conntrack_max = 1048576
+
+# TCP optimizations
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_notsent_lowat = 16384
+net.ipv4.tcp_slow_start_after_idle = 0
+
+# Disable IPv6 (optional, if not used)
+# net.ipv6.conf.all.disable_ipv6 = 1
+# net.ipv6.conf.default.disable_ipv6 = 1
+
+# Enable BBR congestion control
+net.core.default_qdisc = fq
+EOF
+
+# Apply sysctl settings
+sudo sysctl -p /etc/sysctl.d/99-udpst-network.conf
+
+# Load BBR module
+sudo modprobe tcp_bbr
+echo "tcp_bbr" | sudo tee -a /etc/modules
+```
+
+#### NIC Driver Configuration (High-Performance)
+
+```bash
+# For Intel NICs (ixgbe, i40e, ice)
+# Increase ring buffer sizes
+sudo ethtool -G eth0 rx 4096 tx 4096
+
+# Enable multi-queue (adjust based on CPU cores)
+sudo ethtool -L eth0 combined 8
+
+# Enable hardware offloads
+sudo ethtool -K eth0 rx on tx on tso on gso on gro on
+
+# Enable flow control (if supported)
+sudo ethtool -A eth0 rx on tx on
+
+# Create persistent configuration
+sudo tee /etc/network/if-up.d/ethtool-tuning <<'EOF'
+#!/bin/bash
+IFACE=$1
+if [ "$IFACE" = "eth0" ]; then
+    /sbin/ethtool -G $IFACE rx 4096 tx 4096 2>/dev/null || true
+    /sbin/ethtool -L $IFACE combined 8 2>/dev/null || true
+    /sbin/ethtool -K $IFACE rx on tx on tso on gso on gro on 2>/dev/null || true
+fi
+EOF
+sudo chmod +x /etc/network/if-up.d/ethtool-tuning
+```
+
+#### Firewall Configuration
+
+```bash
+# Install firewall (if not already installed)
+sudo apt-get install -y ufw
+
+# Allow SSH
+sudo ufw allow 22/tcp
+
+# Allow OB-UDPST server port
+sudo ufw allow 25000/udp
+
+# Allow backend API port
+sudo ufw allow 3000/tcp
+
+# Allow frontend port (development)
+sudo ufw allow 5173/tcp
+
+# Enable firewall
+sudo ufw enable
+
+# Check status
+sudo ufw status verbose
+```
+
+#### Optional: Docker Support (for containerized deployment)
+
+```bash
+# Install Docker
+sudo apt-get install -y \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release
+
+# Add Docker GPG key
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg | \
+    sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+# Add Docker repository
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/debian \
+  $(lsb_release -cs) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install Docker Engine
+sudo apt-get update
+sudo apt-get install -y \
+    docker-ce \
+    docker-ce-cli \
+    containerd.io \
+    docker-buildx-plugin \
+    docker-compose-plugin
+
+# Add user to docker group
+sudo usermod -aG docker $USER
+
+# Enable Docker service
+sudo systemctl enable docker
+sudo systemctl start docker
+```
+
+#### Verification Steps
+
+```bash
+# Verify all critical components
+echo "=== System Information ==="
+uname -a
+lsb_release -a
+
+echo -e "\n=== CPU Information ==="
+lscpu | grep -E "Model name|CPU\(s\)|Thread|Core|Socket|Flags"
+
+echo -e "\n=== Available CPU Instructions ==="
+grep -o 'sse4_2\|avx\|avx2\|avx512' /proc/cpuinfo | sort -u
+
+echo -e "\n=== Memory Information ==="
+free -h
+
+echo -e "\n=== Network Interfaces ==="
+ip link show
+
+echo -e "\n=== NIC Capabilities ==="
+for iface in $(ls /sys/class/net/ | grep -v lo); do
+    echo "Interface: $iface"
+    ethtool $iface 2>/dev/null | grep -E "Speed|Duplex|Link detected" || true
+    echo "---"
+done
+
+echo -e "\n=== Build Tools ==="
+gcc --version | head -n1
+cmake --version | head -n1
+make --version | head -n1
+
+echo -e "\n=== Node.js & npm ==="
+node --version
+npm --version
+
+echo -e "\n=== OpenSSL ==="
+openssl version
+
+echo -e "\n=== VM Detection ==="
+if [ -f /sys/hypervisor/type ]; then
+    echo "Running in VM: $(cat /sys/hypervisor/type)"
+    systemd-detect-virt
+else
+    echo "Running on bare metal"
+fi
+
+echo -e "\n=== QEMU Guest Agent (Proxmox) ==="
+systemctl is-active qemu-guest-agent 2>/dev/null || echo "Not installed"
+
+echo -e "\n=== VMware Tools ==="
+systemctl is-active open-vm-tools 2>/dev/null || echo "Not installed"
+
+echo -e "\n=== Network Optimization ==="
+sysctl net.core.rmem_max net.core.wmem_max net.ipv4.tcp_congestion_control
+
+echo -e "\n=== Setup Complete ==="
+```
+
+#### Post-Installation Notes
+
+**For Bare Metal:**
+- Disable CPU frequency scaling: `sudo cpupower frequency-set -g performance`
+- Enable IOMMU in BIOS if using SR-IOV or DPDK
+- Disable C-states in BIOS for consistent latency
+- Consider isolating CPUs for OB-UDPST: add `isolcpus=0-7` to kernel command line
+
+**For Proxmox VMs:**
+- Set CPU type to `host` in VM configuration for instruction set passthrough
+- Enable CPU pinning in Proxmox: `qm set <vmid> --cpuunits 1024 --cores 4 --vcpus 4`
+- Add SR-IOV VF: `qm set <vmid> --hostpci0 01:10.0`
+- Enable hugepages on host: `echo 2048 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages`
+
+**For VMware VMs:**
+- Set CPU reservation equal to allocation for consistent performance
+- Disable memory ballooning if possible
+- Use VMXNET3 adapter for best performance
+- Enable hardware-assisted virtualization (VT-x/AMD-V)
+
 ## Quick Start
 
 ### 1. Build OB-UDPST Binary
