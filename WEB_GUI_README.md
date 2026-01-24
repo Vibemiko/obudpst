@@ -90,6 +90,176 @@ This project provides a complete web-based control plane for OB-UDPST, enabling:
 - **GCC**: For compiling OB-UDPST
 - **OpenSSL Development Libraries**: For OB-UDPST authentication
 
+### Hardware Requirements
+
+#### OB-UDPST Binary (Core Testing Engine)
+
+The OB-UDPST binary performs high-precision UDP traffic generation and measurement. Hardware requirements scale with test load:
+
+**Minimum Configuration (1-10 Gbps testing):**
+- **CPU**: 2 physical cores / 4 threads
+- **CPU Instructions**: SSE4.2 or higher
+- **Base Frequency**: 2.0 GHz minimum
+- **Memory**: 512 MB RAM
+- **Network**: 1 Gbps NIC with hardware timestamping support
+
+**Recommended Configuration (10-40 Gbps testing):**
+- **CPU**: 4 physical cores / 8 threads
+- **CPU Instructions**: AVX or AVX2 (significantly improves packet processing)
+- **Base Frequency**: 2.5 GHz or higher
+- **Memory**: 2 GB RAM
+- **Network**: 10 Gbps NIC with multi-queue support and hardware offload
+
+**High-Performance Configuration (40+ Gbps testing):**
+- **CPU**: 8+ physical cores / 16+ threads
+- **CPU Instructions**: AVX2 or AVX-512 (optimal for packet operations)
+- **Base Frequency**: 3.0 GHz or higher, boost to 4.0+ GHz
+- **Memory**: 4+ GB RAM
+- **Network**: 25/40/100 Gbps NIC with DPDK compatibility, SR-IOV support
+
+**CPU Architecture Notes:**
+- OB-UDPST benefits from modern x86-64 instruction sets for efficient packet manipulation
+- **SSE4.2**: Basic support, adequate for gigabit testing
+- **AVX/AVX2**: Recommended for multi-gigabit workloads, improves throughput by 20-40%
+- **AVX-512**: Optimal for 40+ Gbps testing on supported platforms
+
+#### Web GUI + Backend (Orchestration Layer)
+
+The Node.js backend and React frontend have minimal overhead and can run alongside OB-UDPST:
+
+**Minimum Configuration:**
+- **CPU**: 1 physical core / 2 threads (can share with OB-UDPST on low-load systems)
+- **CPU Instructions**: x86-64 baseline (no special requirements)
+- **Memory**: 256 MB RAM
+- **Storage**: 500 MB for Node.js runtime + application
+
+**Recommended Configuration:**
+- **CPU**: 2 physical cores (separate from OB-UDPST cores)
+- **Memory**: 512 MB RAM
+- **Storage**: 1 GB for logs and temporary files
+
+#### Bare Metal Deployment
+
+**Entry-Level Server (1-10 Gbps):**
+- **Example**: Intel Xeon E3-1230 v3 or AMD Ryzen 5 3600
+- **Cores**: 4 cores / 8 threads
+- **Instructions**: AVX2
+- **Base/Boost**: 3.3 GHz / 3.8 GHz
+- **Memory**: 8 GB DDR4 ECC
+- **NIC**: Intel X520 (10GbE)
+
+**Mid-Range Server (10-40 Gbps):**
+- **Example**: Intel Xeon E5-2630 v4 or AMD EPYC 7302P
+- **Cores**: 8-16 cores / 16-32 threads
+- **Instructions**: AVX2
+- **Base/Boost**: 2.5 GHz / 3.5+ GHz
+- **Memory**: 16-32 GB DDR4 ECC
+- **NIC**: Mellanox ConnectX-4 (25/40GbE)
+
+**High-End Server (40-100 Gbps):**
+- **Example**: Intel Xeon Gold 6248R or AMD EPYC 7502
+- **Cores**: 16-32 cores / 32-64 threads
+- **Instructions**: AVX-512 (Intel) or AVX2 (AMD)
+- **Base/Boost**: 3.0 GHz / 4.0+ GHz
+- **Memory**: 64+ GB DDR4 ECC
+- **NIC**: Mellanox ConnectX-5/6 (100GbE) or Intel E810 (100GbE)
+
+#### Virtual Machine Deployment (Proxmox VE)
+
+When running in VMs, CPU instruction set passthrough and core pinning are critical for performance:
+
+**VM Configuration for 1-10 Gbps Testing:**
+- **Host CPU Minimum**: Intel Sandy Bridge (2011+) or AMD Bulldozer (2011+)
+- **vCPU**: 2-4 vCPUs with CPU pinning
+- **CPU Type**: host or x86-64-v2-AES (enables AES-NI, AVX)
+- **Memory**: 2 GB RAM
+- **Network**: VirtIO with vhost-net or SR-IOV passthrough
+
+**VM Configuration for 10-40 Gbps Testing:**
+- **Host CPU Recommended**: Intel Haswell (2013+) or AMD Zen (2017+)
+- **vCPU**: 4-8 vCPUs with dedicated core pinning
+- **CPU Type**: host or x86-64-v3 (enables AVX2, BMI2, FMA)
+- **Memory**: 4 GB RAM
+- **Network**: SR-IOV VF passthrough (strongly recommended)
+- **NUMA**: Pin VM to single NUMA node
+
+**VM Configuration for 40+ Gbps Testing:**
+- **Host CPU Required**: Intel Skylake-SP (2017+) or AMD Zen 2 (2019+)
+- **vCPU**: 8-16 vCPUs with exclusive core reservation
+- **CPU Type**: host (full instruction passthrough including AVX-512)
+- **Memory**: 8+ GB RAM with hugepages enabled
+- **Network**: SR-IOV or VFIO PCI passthrough (mandatory)
+- **NUMA**: Strict NUMA pinning with local memory
+
+**Proxmox CPU Type Selection:**
+```
+# For maximum performance (requires homogeneous cluster)
+cpu: host
+
+# For AVX2 support with migration compatibility
+cpu: x86-64-v3
+
+# For basic compatibility with AVX
+cpu: x86-64-v2-AES
+
+# Legacy systems (avoid if possible)
+cpu: kvm64
+```
+
+**Critical VM Performance Settings:**
+- Enable CPU pinning: prevents vCPU migration, reduces jitter
+- Enable hugepages: improves memory performance for packet buffers
+- Use SR-IOV or passthrough: bypasses virtual network stack overhead
+- Disable CPU hotplug: ensures consistent performance
+- Set CPU scheduler to performance mode on host
+
+#### Socket/Core Allocation Examples
+
+**Scenario 1: Dedicated Test Server (Bare Metal)**
+- **CPU**: Dual Intel Xeon Silver 4214 (2×12 cores = 24 cores / 48 threads)
+- **Allocation**:
+  - Cores 0-15: OB-UDPST testing processes (Socket 0)
+  - Cores 16-19: Web GUI + Backend (Socket 1)
+  - Cores 20-23: System + monitoring (Socket 1)
+
+**Scenario 2: Shared Hypervisor (Proxmox)**
+- **CPU**: Single AMD EPYC 7402 (24 cores / 48 threads)
+- **Allocation**:
+  - VM 1 (OB-UDPST): 8 vCPUs pinned to cores 0-7
+  - VM 2 (Web GUI): 2 vCPUs pinned to cores 8-9
+  - Other VMs: cores 10-23
+
+**Scenario 3: Multi-Tenant Environment**
+- **CPU**: Dual Intel Xeon Gold 6248 (2×20 cores = 40 cores / 80 threads)
+- **Allocation per tenant**:
+  - OB-UDPST VM: 4-8 vCPUs (dedicated cores)
+  - GUI/Backend: 1-2 vCPUs (can be shared)
+  - Total: ~6-10 cores per isolated test environment
+
+#### Network Interface Considerations
+
+- **Driver Support**: Intel (ixgbe, i40e, ice), Mellanox (mlx4, mlx5)
+- **Multi-Queue**: Enables parallel packet processing across cores
+- **RSS/RPS**: Receive Side Scaling for load distribution
+- **Hardware Offload**: TSO, GSO, GRO (can reduce CPU load)
+- **Timestamping**: Hardware timestamps for precise measurements
+
+#### Performance Scaling
+
+| Test Speed | Min Cores | Rec Cores | Min RAM | Rec RAM | CPU Instructions |
+|------------|-----------|-----------|---------|---------|-----------------|
+| 1 Gbps     | 2         | 4         | 512 MB  | 1 GB    | SSE4.2          |
+| 10 Gbps    | 4         | 8         | 1 GB    | 2 GB    | AVX             |
+| 25 Gbps    | 6         | 12        | 2 GB    | 4 GB    | AVX2            |
+| 40 Gbps    | 8         | 16        | 2 GB    | 4 GB    | AVX2            |
+| 100 Gbps   | 16        | 32        | 4 GB    | 8 GB    | AVX-512         |
+
+**Note**: Actual requirements depend on:
+- Number of simultaneous connections
+- Packet size (jumbo frames reduce CPU load)
+- Test duration and logging verbosity
+- Background system load
+
 ### Network Requirements
 
 - Server: UDP port 25000 (default) + ephemeral ports (32768-60999)
