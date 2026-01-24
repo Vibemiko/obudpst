@@ -119,25 +119,31 @@ The database is already configured. Environment variables are available in the p
 
 ```bash
 cd backend
-
 npm install
 ```
 
-**For Bolt.new Users**: The `.env` file has been automatically created in the `backend/` directory with the correct Supabase credentials. If you're running elsewhere, create `.env` from `.env.example`:
+**IMPORTANT - Environment Configuration:**
+
+The backend requires its own `.env` file in the `backend/` directory. This file is NOT committed to Git (for security), so you must create it:
 
 ```bash
+# Copy the example file
 cp .env.example .env
+
+# Edit with your Supabase credentials
+nano .env
 ```
 
-Edit `.env` and configure:
+Configure the following variables in `backend/.env`:
 ```env
 SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
 PORT=3000
-UDPST_BINARY_PATH=/path/to/udpst
+UDPST_BINARY_PATH=../udpst
+NODE_ENV=development
 ```
 
-**Note**: The backend requires its own `.env` file in the `backend/` directory (not the root `.env` which contains `VITE_*` prefixed variables for the frontend).
+**Note**: The backend uses `backend/.env` (no `VITE_` prefix), while the frontend uses the root `.env` file (with `VITE_` prefix). These are separate files with different variables.
 
 Start the backend:
 ```bash
