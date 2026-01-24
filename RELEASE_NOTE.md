@@ -4,7 +4,7 @@
 
 ### v1.0.0 - 2025-01-23
 
-**Initial Release: Web GUI and Control API for OB-UDPST**
+**Initial Release: Web GUI and Control API forc**
 
 #### Overview
 First production release of the web-based orchestration layer for OB-UDPST. This release provides a complete control plane with modern web interface, REST API, and database persistence.
