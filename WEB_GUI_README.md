@@ -113,7 +113,7 @@ Verify the binary:
 
 ### 2. Set Up Supabase
 
-The database is already configured. Copy the environment variables from `.env` to backend configuration.
+The database is already configured. Environment variables are available in the project.
 
 ### 3. Install and Run Backend
 
@@ -121,7 +121,11 @@ The database is already configured. Copy the environment variables from `.env` t
 cd backend
 
 npm install
+```
 
+**For Bolt.new Users**: The `.env` file has been automatically created in the `backend/` directory with the correct Supabase credentials. If you're running elsewhere, create `.env` from `.env.example`:
+
+```bash
 cp .env.example .env
 ```
 
@@ -132,6 +136,8 @@ SUPABASE_ANON_KEY=your_supabase_anon_key
 PORT=3000
 UDPST_BINARY_PATH=/path/to/udpst
 ```
+
+**Note**: The backend requires its own `.env` file in the `backend/` directory (not the root `.env` which contains `VITE_*` prefixed variables for the frontend).
 
 Start the backend:
 ```bash
@@ -430,9 +436,17 @@ pkill udpst
 
 ### Database Connection Failed
 
-**Error**: `Configuration errors: SUPABASE_URL is required`
+**Error**: `supabaseUrl is required` or `Configuration errors: SUPABASE_URL is required`
 
-**Solution**: Verify `.env` file contains correct Supabase credentials
+**Solution**:
+
+This error occurs when the backend cannot find Supabase credentials. On Bolt.new, ensure that:
+
+1. The `backend/.env` file exists (not just the root `.env`)
+2. The file contains `SUPABASE_URL` and `SUPABASE_ANON_KEY` (without `VITE_` prefix)
+3. The values match your Supabase project credentials
+
+The backend looks for `.env` in its own directory (`backend/.env`), not the root directory. The root `.env` file with `VITE_*` variables is only for the frontend.
 
 ### Test Fails to Start
 
