@@ -32,6 +32,10 @@ if [ ! -d "frontend/node_modules" ]; then
 fi
 
 echo ""
+echo "Setting up logging..."
+bash backend/setup-logging.sh
+echo ""
+
 echo "Starting OB-UDPST services..."
 echo "Backend will be accessible on ${HOST:-0.0.0.0}:${PORT:-3000}"
 echo "Frontend will be accessible on ${VITE_HOST:-0.0.0.0}:${VITE_PORT:-5173}"

@@ -25,6 +25,10 @@ if [ ! -d "backend/node_modules" ]; then
     cd backend && npm install && cd ..
 fi
 
+echo "Setting up logging..."
+bash backend/setup-logging.sh
+echo ""
+
 echo "Starting backend server..."
 echo "Backend will be accessible on ${HOST:-0.0.0.0}:${PORT:-3000}"
 echo ""

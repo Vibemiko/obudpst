@@ -16,9 +16,12 @@ services:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - UDPST_BINARY_PATH=/app/udpst
+      - LOG_DIR=/var/log/udpst
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ./udpst:/app/udpst:ro
       - ./udpst.keys:/app/udpst.keys:ro
+      - udpst-logs:/var/log/udpst
     networks:
       - obudpst-network
     healthcheck:
@@ -56,3 +59,7 @@ networks:
   obudpst-network:
     driver: bridge
     name: obudpst-network
+
+volumes:
+  udpst-logs:
+    name: udpst-logs

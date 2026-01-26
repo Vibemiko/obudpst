@@ -80,9 +80,13 @@ This release adds comprehensive test history management, production-grade loggin
 None
 
 #### Migration Notes
-- Set up log directory: `sudo mkdir -p /var/log/udpst && sudo chown $USER:$USER /var/log/udpst`
-- Optionally configure logrotate: `sudo cp backend/logrotate.conf /etc/logrotate.d/udpst-api`
+- **Logging is automatically configured** when starting the backend
+- The start scripts (`start-local.sh`, `start-local-backend.sh`) automatically run `backend/setup-logging.sh`
+- Log directory is created with proper permissions on first run
+- For Docker deployments, logs are stored in a persistent volume
+- All configuration is controlled via `.env` file (`LOG_DIR` and `LOG_LEVEL`)
 - Review `LOGGING_GUIDE.md` for detailed logging documentation
+- Review `INSTALLATION.md` for complete setup guide
 - Old test records can now be deleted via UI
 
 #### Environment Variables
@@ -95,6 +99,16 @@ LOG_DIR=/var/log/udpst
 # Log level: error, warn, info, debug (default: info)
 LOG_LEVEL=info
 ```
+
+#### New Files and Documentation
+- `backend/src/utils/logger.js` - Winston logger configuration
+- `backend/setup-logging.sh` - Automatic logging setup script
+- `backend/logrotate.conf` - System logrotate configuration
+- `LOGGING_GUIDE.md` - Complete logging documentation
+- `INSTALLATION.md` - Comprehensive installation guide
+- Updated `.env.example` with logging configuration
+- Updated `docker-compose.yml` with logging volume
+- Updated `Dockerfile` with log directory setup
 
 ---
 

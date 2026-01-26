@@ -962,9 +962,9 @@ make
 
 # 3. Configure environment
 cp .env.example .env
-nano .env  # Add your Supabase credentials
+nano .env  # Add your Supabase credentials and logging preferences
 
-# 4. Run both services
+# 4. Run both services (logging is automatically configured)
 ./start-local.sh
 ```
 
@@ -1623,6 +1623,24 @@ The project uses a **single root `.env` file** for all configuration. Both front
 - **Network access**: `http://YOUR_SERVER_IP:3000`
 - **Docker**: Leave empty (nginx proxy handles it)
 - **Production**: Your production API URL
+
+#### Logging Configuration
+
+| Variable | Description | Default | Options |
+|----------|-------------|---------|---------|
+| `LOG_DIR` | Log file directory | /var/log/udpst | Any writable directory |
+| `LOG_LEVEL` | Minimum log level | info | error, warn, info, debug |
+
+**Logging Features:**
+- Automatic daily log rotation
+- Separate files for general and error logs
+- 14-day retention for application logs
+- 30-day retention for error logs
+- Automatic compression of rotated logs
+- Console logging (always enabled)
+- File logging (auto-configured on startup)
+
+See [LOGGING_GUIDE.md](LOGGING_GUIDE.md) for detailed documentation.
 
 #### Other Settings
 
