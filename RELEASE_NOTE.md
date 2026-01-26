@@ -2,6 +2,49 @@
 
 ## Version Log
 
+### v1.0.2 - 2026-01-26
+
+**Binary Path Resolution Fix**
+
+#### Overview
+This release fixes a critical issue where the backend could not find the UDPST binary when running from the `start-local.sh` script due to incorrect working directory path resolution.
+
+#### Changes
+
+**Configuration Improvements (backend/src/config.js)**
+- Added proper project root detection using `__dirname` path resolution
+- New `resolveBinaryPath()` function that correctly resolves both relative and absolute paths
+- Relative paths now always resolved from project root, not current working directory
+- Added binary existence validation at startup with helpful warning messages
+- Exposed `projectRoot` in config for debugging and path resolution
+
+**Environment Configuration (.env, .env.example)**
+- Updated `.env.example` with clearer documentation about path resolution
+- Changed recommendation to leave `UDPST_BINARY_PATH` commented for automatic detection
+- Documented that relative paths are resolved from project root
+
+**UDPST Service Improvements (backend/src/services/udpst.js)**
+- Added `ensureBinaryExists()` pre-check before spawning processes
+- Prevents cryptic ENOENT errors with clear error messages
+- Enhanced `checkBinary()` function returns project root and actionable hints
+- Better error handling distinguishing between "not found" and "not executable"
+
+#### Fixed Critical Issues
+1. `Error: spawn ./udpst ENOENT` when using `start-local.sh`
+2. Binary path incorrectly resolved relative to `backend/` instead of project root
+3. Unhelpful error messages when binary is missing
+
+#### Breaking Changes
+None
+
+#### Migration Notes
+- If you have `UDPST_BINARY_PATH=./udpst` in your `.env` file, either:
+  - Comment it out (recommended) to use automatic detection
+  - Change to absolute path: `UDPST_BINARY_PATH=/opt/obudpst/udpst`
+  - Keep relative paths - they now resolve from project root
+
+---
+
 ### v1.0.1 - 2026-01-26
 
 **Documentation and Installation Improvements**

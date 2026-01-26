@@ -1,28 +1,50 @@
 import { spawn } from 'child_process';
 import { access, constants } from 'fs/promises';
+import { existsSync } from 'fs';
 import { config } from '../config.js';
 import { parseUdpstOutput } from '../utils/parser.js';
 import * as db from './database.js';
 
 const runningProcesses = new Map();
 
+function ensureBinaryExists() {
+  if (!existsSync(config.udpst.binaryPath)) {
+    const error = new Error(
+      `UDPST binary not found at: ${config.udpst.binaryPath}\n` +
+      'Please compile the binary by running "cmake . && make" in the project root.'
+    );
+    error.code = 'BINARY_NOT_FOUND';
+    throw error;
+  }
+}
+
 export async function checkBinary() {
+  const result = {
+    available: false,
+    path: config.udpst.binaryPath,
+    projectRoot: config.projectRoot
+  };
+
+  if (!existsSync(config.udpst.binaryPath)) {
+    result.error = 'Binary file not found';
+    result.hint = 'Run "cmake . && make" in the project root to compile the binary';
+    return result;
+  }
+
   try {
     await access(config.udpst.binaryPath, constants.X_OK);
-    return {
-      available: true,
-      path: config.udpst.binaryPath
-    };
+    result.available = true;
+    return result;
   } catch (error) {
-    return {
-      available: false,
-      path: config.udpst.binaryPath,
-      error: error.message
-    };
+    result.error = 'Binary exists but is not executable';
+    result.hint = `Run "chmod +x ${config.udpst.binaryPath}" to make it executable`;
+    return result;
   }
 }
 
 export async function startServer(params) {
+  ensureBinaryExists();
+
   const existingServer = await db.getActiveServerInstance();
   if (existingServer && runningProcesses.has(existingServer.process_id)) {
     throw new Error('Server already running');
@@ -152,6 +174,8 @@ export async function getServerStatus() {
 }
 
 export async function startClientTest(params) {
+  ensureBinaryExists();
+
   const testId = `test_${Date.now()}`;
 
   const testRecord = await db.createTest({
