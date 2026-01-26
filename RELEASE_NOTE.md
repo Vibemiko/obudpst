@@ -2,6 +2,102 @@
 
 ## Version Log
 
+### v1.0.3 - 2026-01-26
+
+**Test Management and Logging Features**
+
+#### Overview
+This release adds comprehensive test history management, production-grade logging with automatic rotation, and improved error handling for failed tests.
+
+#### Changes
+
+**Test History Management**
+- Added DELETE endpoint for individual tests: `DELETE /api/test/:testId`
+- Added DELETE endpoint to clear all tests: `DELETE /api/test`
+- Added delete buttons in History page UI with confirmation dialogs
+- Individual test delete buttons appear on hover
+- "Clear All" button with modal confirmation to prevent accidental deletion
+- Automatic refresh after deletion operations
+
+**Production Logging (Winston)**
+- Installed winston and winston-daily-rotate-file for structured logging
+- Logs written to `/var/log/udpst/` with automatic daily rotation
+- Separate log files for general application logs and errors
+- HTTP request logging with method, path, status code, duration, and IP
+- Process lifecycle logging for all UDPST operations
+- Configurable log level via `LOG_LEVEL` environment variable
+- Console logging with colors for development
+- File logging with structured JSON metadata for production
+- Log retention: 14 days for application logs, 30 days for errors
+- Automatic compression of rotated logs
+- Created `LOGGING_GUIDE.md` with complete documentation
+- Included logrotate configuration for system-level rotation
+
+**Error Handling Improvements**
+- Fixed hanging issue when tests fail with verbose output enabled
+- Added timeout protection (test duration + 60 seconds)
+- Better process error handling with dedicated error event handler
+- Prevents duplicate exit handlers with `processExited` flag
+- Captures both stdout and stderr for better error messages
+- Signal handling for SIGTERM (user stop) vs other signals
+- Improved error messages showing actual output from failed tests
+
+**Database Service**
+- Added `deleteTest(testId)` function to remove individual tests and results
+- Added `deleteAllTests()` function to clear all test history
+- Cascade deletion: removes test results before removing tests
+- Proper error handling for missing tests
+
+**Frontend API Service**
+- Added `test.delete(testId)` method
+- Added `test.deleteAll()` method
+- Consistent error handling across all API methods
+
+#### Fixed Critical Issues
+1. Tests with verbose output hanging at 100% when server unavailable
+2. No way to clean up old test records from history
+3. Lack of production logging for troubleshooting
+4. Process timeout not enforced causing zombie tests
+5. Duplicate process.on('exit') handlers causing issues
+
+#### Logging Features
+- **Startup**: Configuration, binary validation, network binding
+- **Requests**: All API calls with timing and response codes
+- **Tests**: Start, completion, failure, timeout with test IDs
+- **Processes**: spawn, exit codes, signals, errors
+- **Database**: Operations, errors, deletions
+- **Errors**: Stack traces, context, structured metadata
+
+#### Log Files
+```
+/var/log/udpst/
+├── udpst-api-2026-01-26.log        # General application log
+├── udpst-api-error-2026-01-26.log  # Errors only
+└── [older rotated logs].gz         # Compressed archived logs
+```
+
+#### Breaking Changes
+None
+
+#### Migration Notes
+- Set up log directory: `sudo mkdir -p /var/log/udpst && sudo chown $USER:$USER /var/log/udpst`
+- Optionally configure logrotate: `sudo cp backend/logrotate.conf /etc/logrotate.d/udpst-api`
+- Review `LOGGING_GUIDE.md` for detailed logging documentation
+- Old test records can now be deleted via UI
+
+#### Environment Variables
+
+New optional variables:
+```bash
+# Log directory (default: /var/log/udpst)
+LOG_DIR=/var/log/udpst
+
+# Log level: error, warn, info, debug (default: info)
+LOG_LEVEL=info
+```
+
+---
+
 ### v1.0.2 - 2026-01-26
 
 **Binary Path Resolution Fix**

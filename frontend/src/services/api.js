@@ -50,6 +50,14 @@ export const api = {
       method: 'POST',
     }),
 
+    delete: (testId) => request(`/test/${testId}`, {
+      method: 'DELETE',
+    }),
+
+    deleteAll: () => request('/test', {
+      method: 'DELETE',
+    }),
+
     list: (params = {}) => {
       const query = new URLSearchParams();
       if (params.status) query.append('status', params.status);

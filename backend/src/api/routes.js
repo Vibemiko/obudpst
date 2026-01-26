@@ -1,5 +1,7 @@
 import express from 'express';
 import * as udpst from '../services/udpst.js';
+import * as db from '../services/database.js';
+import { logger } from '../utils/logger.js';
 
 export const router = express.Router();
 
@@ -13,7 +15,9 @@ router.post('/server/start', async (req, res) => {
       verbose: req.body.verbose || false
     };
 
+    logger.info('Starting UDPST server', params);
     const result = await udpst.startServer(params);
+    logger.info('UDPST server started successfully', { processId: result.processId, pid: result.pid });
 
     res.json({
       success: true,
@@ -23,6 +27,7 @@ router.post('/server/start', async (req, res) => {
       config: result.config
     });
   } catch (error) {
+    logger.error('Failed to start UDPST server', { error: error.message, code: error.code });
     res.status(400).json({
       success: false,
       error: error.message,
@@ -82,6 +87,7 @@ router.post('/client/start', async (req, res) => {
     };
 
     if (!params.testType || !['upstream', 'downstream'].includes(params.testType)) {
+      logger.warn('Invalid test type provided', { testType: params.testType });
       return res.status(400).json({
         success: false,
         error: 'testType must be "upstream" or "downstream"',
@@ -90,6 +96,7 @@ router.post('/client/start', async (req, res) => {
     }
 
     if (!params.servers || params.servers.length === 0) {
+      logger.warn('No servers specified for test');
       return res.status(400).json({
         success: false,
         error: 'At least one server must be specified',
@@ -97,7 +104,9 @@ router.post('/client/start', async (req, res) => {
       });
     }
 
+    logger.info('Starting client test', { testType: params.testType, servers: params.servers, duration: params.duration });
     const result = await udpst.startClientTest(params);
+    logger.info('Client test started', { testId: result.testId });
 
     res.json({
       success: true,
@@ -106,6 +115,7 @@ router.post('/client/start', async (req, res) => {
       message: 'Test started successfully'
     });
   } catch (error) {
+    logger.error('Failed to start client test', { error: error.message, code: error.code });
     res.status(400).json({
       success: false,
       error: error.message,
@@ -207,6 +217,47 @@ router.get('/binary/info', async (req, res) => {
       }
     });
   } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+router.delete('/test/:testId', async (req, res) => {
+  try {
+    logger.info('Deleting test', { testId: req.params.testId });
+    await db.deleteTest(req.params.testId);
+    logger.info('Test deleted successfully', { testId: req.params.testId });
+
+    res.json({
+      success: true,
+      message: 'Test deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Failed to delete test', { testId: req.params.testId, error: error.message });
+    const statusCode = error.message.includes('not found') ? 404 : 500;
+    res.status(statusCode).json({
+      success: false,
+      error: error.message,
+      code: error.message.includes('not found') ? 'NOT_FOUND' : 'INTERNAL_ERROR'
+    });
+  }
+});
+
+router.delete('/test', async (req, res) => {
+  try {
+    logger.info('Deleting all tests');
+    await db.deleteAllTests();
+    logger.info('All tests deleted successfully');
+
+    res.json({
+      success: true,
+      message: 'All tests deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Failed to delete all tests', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message,

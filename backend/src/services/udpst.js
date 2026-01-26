@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import { config } from '../config.js';
 import { parseUdpstOutput } from '../utils/parser.js';
 import * as db from './database.js';
+import { logger } from '../utils/logger.js';
 
 const runningProcesses = new Map();
 
@@ -247,6 +248,7 @@ export async function startClientTest(params) {
 
   let stdoutData = '';
   let stderrData = '';
+  let processExited = false;
 
   proc.stdout.on('data', (data) => {
     stdoutData += data.toString();
@@ -256,14 +258,42 @@ export async function startClientTest(params) {
     stderrData += data.toString();
   });
 
+  proc.on('error', async (error) => {
+    if (!processExited) {
+      processExited = true;
+      runningProcesses.delete(testId);
+      logger.error('Test process error', { testId, error: error.message });
+
+      await db.updateTest(testId, {
+        status: 'failed',
+        error_message: `Process error: ${error.message}`,
+        completed_at: new Date().toISOString()
+      });
+    }
+  });
+
   proc.on('exit', async (code, signal) => {
+    if (processExited) return;
+    processExited = true;
+
     runningProcesses.delete(testId);
 
     const completedAt = new Date().toISOString();
 
+    if (signal) {
+      logger.info('Test process terminated by signal', { testId, signal });
+      await db.updateTest(testId, {
+        status: signal === 'SIGTERM' ? 'stopped' : 'failed',
+        error_message: signal === 'SIGTERM' ? 'Test stopped by user' : `Process killed by signal: ${signal}`,
+        completed_at: completedAt
+      });
+      return;
+    }
+
     if (code === 0) {
       try {
         const results = parseUdpstOutput(stdoutData);
+        logger.info('Test completed successfully', { testId, throughput: results.throughput });
 
         await db.saveTestResults(testId, results);
 
@@ -272,6 +302,7 @@ export async function startClientTest(params) {
           completed_at: completedAt
         });
       } catch (error) {
+        logger.error('Failed to parse test results', { testId, error: error.message });
         await db.updateTest(testId, {
           status: 'failed',
           error_message: `Failed to parse results: ${error.message}`,
@@ -279,12 +310,37 @@ export async function startClientTest(params) {
         });
       }
     } else {
+      const errorMsg = stderrData.trim() || stdoutData.trim() || `Process exited with code ${code}`;
+      logger.warn('Test failed', { testId, exitCode: code, error: errorMsg.substring(0, 200) });
       await db.updateTest(testId, {
         status: 'failed',
-        error_message: stderrData || `Process exited with code ${code}`,
+        error_message: errorMsg,
         completed_at: completedAt
       });
     }
+  });
+
+  const testTimeout = (params.duration || 30) * 1000 + 60000;
+  const timeoutId = setTimeout(async () => {
+    if (runningProcesses.has(testId) && !processExited) {
+      processExited = true;
+      const processInfo = runningProcesses.get(testId);
+      if (processInfo) {
+        processInfo.process.kill('SIGTERM');
+        runningProcesses.delete(testId);
+      }
+
+      logger.warn('Test timeout exceeded', { testId, timeout: testTimeout });
+      await db.updateTest(testId, {
+        status: 'failed',
+        error_message: 'Test timeout exceeded',
+        completed_at: new Date().toISOString()
+      });
+    }
+  }, testTimeout);
+
+  proc.on('exit', () => {
+    clearTimeout(timeoutId);
   });
 
   return { testId, status: 'running' };

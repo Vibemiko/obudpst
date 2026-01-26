@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { History, RefreshCw, Eye } from 'lucide-react';
+import { History, RefreshCw, Eye, Trash2 } from 'lucide-react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import StatusBadge from '../components/StatusBadge';
@@ -10,6 +10,8 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(false);
   const [selectedTest, setSelectedTest] = useState(null);
   const [filter, setFilter] = useState('all');
+  const [deleting, setDeleting] = useState(null);
+  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
 
   useEffect(() => {
     fetchTests();
@@ -46,6 +48,47 @@ export default function HistoryPage() {
     }
   }
 
+  async function handleDeleteTest(testId, e) {
+    e.stopPropagation();
+
+    if (!confirm('Are you sure you want to delete this test?')) {
+      return;
+    }
+
+    setDeleting(testId);
+
+    try {
+      await api.test.delete(testId);
+
+      if (selectedTest?.testId === testId) {
+        setSelectedTest(null);
+      }
+
+      await fetchTests();
+    } catch (err) {
+      console.error('Failed to delete test:', err);
+      alert('Failed to delete test: ' + err.message);
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  async function handleClearAll() {
+    setShowClearAllConfirm(false);
+    setLoading(true);
+
+    try {
+      await api.test.deleteAll();
+      setSelectedTest(null);
+      await fetchTests();
+    } catch (err) {
+      console.error('Failed to clear all tests:', err);
+      alert('Failed to clear all tests: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -56,11 +99,49 @@ export default function HistoryPage() {
           </p>
         </div>
 
-        <Button onClick={fetchTests} disabled={loading}>
-          <RefreshCw size={20} className="inline mr-2" />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => setShowClearAllConfirm(true)}
+            variant="secondary"
+            disabled={loading || tests.length === 0}
+          >
+            <Trash2 size={20} className="inline mr-2" />
+            Clear All
+          </Button>
+
+          <Button onClick={fetchTests} disabled={loading}>
+            <RefreshCw size={20} className="inline mr-2" />
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      {showClearAllConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Clear All Tests?
+            </h3>
+            <p className="text-gray-600 mb-6">
+              This will permanently delete all test records and results. This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="secondary"
+                onClick={() => setShowClearAllConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleClearAll}
+              >
+                Delete All Tests
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-2">
         <FilterButton
@@ -105,7 +186,7 @@ export default function HistoryPage() {
               {tests.map((test) => (
                 <div
                   key={test.id}
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-md hover:bg-gray-50 cursor-pointer"
+                  className="flex items-center justify-between p-3 border border-gray-200 rounded-md hover:bg-gray-50 cursor-pointer group"
                   onClick={() => viewTestDetails(test.test_id)}
                 >
                   <div className="flex-1">
@@ -120,7 +201,17 @@ export default function HistoryPage() {
                       </span>
                     </div>
                   </div>
-                  <Eye size={16} className="text-gray-400" />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => handleDeleteTest(test.test_id, e)}
+                      disabled={deleting === test.test_id}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                      title="Delete test"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                    <Eye size={16} className="text-gray-400" />
+                  </div>
                 </div>
               ))}
             </div>

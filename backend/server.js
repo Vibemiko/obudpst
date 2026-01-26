@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { config, validateConfig } from './src/config.js';
 import { router as apiRouter } from './src/api/routes.js';
+import { logger, logRequest } from './src/utils/logger.js';
 
 validateConfig();
 
@@ -9,6 +10,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(logRequest);
 
 app.use('/api', apiRouter);
 
@@ -17,7 +19,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  logger.error('Unhandled error:', { error: err.message, stack: err.stack });
   res.status(500).json({
     success: false,
     error: err.message || 'Internal server error',
@@ -26,10 +28,11 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(config.port, config.host, () => {
-  console.log(`OB-UDPST Control API running on ${config.host}:${config.port}`);
-  console.log(`Environment: ${config.nodeEnv}`);
-  console.log(`Binary path: ${config.udpst.binaryPath}`);
-  if (config.host === '0.0.0.0') {
-    console.log(`Server accessible on all network interfaces`);
-  }
+  logger.info(`OB-UDPST Control API started`, {
+    host: config.host,
+    port: config.port,
+    environment: config.nodeEnv,
+    binaryPath: config.udpst.binaryPath,
+    networkAccess: config.host === '0.0.0.0' ? 'all interfaces' : 'restricted'
+  });
 });

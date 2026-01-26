@@ -155,3 +155,44 @@ export async function getActiveServerInstance() {
   if (error) throw error;
   return data;
 }
+
+export async function deleteTest(testId) {
+  const test = await getTest(testId);
+  if (!test) {
+    throw new Error('Test not found');
+  }
+
+  const { error: resultsError } = await supabase
+    .from('test_results')
+    .delete()
+    .eq('test_id', test.id);
+
+  if (resultsError) throw resultsError;
+
+  const { error: testError } = await supabase
+    .from('tests')
+    .delete()
+    .eq('test_id', testId);
+
+  if (testError) throw testError;
+
+  return { success: true };
+}
+
+export async function deleteAllTests() {
+  const { error: resultsError } = await supabase
+    .from('test_results')
+    .delete()
+    .neq('id', 0);
+
+  if (resultsError) throw resultsError;
+
+  const { error: testsError } = await supabase
+    .from('tests')
+    .delete()
+    .neq('id', 0);
+
+  if (testsError) throw testsError;
+
+  return { success: true };
+}
