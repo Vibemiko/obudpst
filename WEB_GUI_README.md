@@ -577,60 +577,349 @@ sudo systemctl start docker
 #### Verification Steps
 
 ```bash
-# Verify all critical components
-echo "=== System Information ==="
-uname -a
-lsb_release -a
+#!/bin/bash
+# OB-UDPST Debian 13 Installation Verification Script
+# This script validates the installation and detects the runtime environment
 
-echo -e "\n=== CPU Information ==="
-lscpu | grep -E "Model name|CPU\(s\)|Thread|Core|Socket|Flags"
+set +e
+ERRORS=0
+WARNINGS=0
 
-echo -e "\n=== Available CPU Instructions ==="
-grep -o 'sse4_2\|avx\|avx2\|avx512' /proc/cpuinfo | sort -u
+echo "=========================================="
+echo "OB-UDPST Installation Verification"
+echo "=========================================="
 
-echo -e "\n=== Memory Information ==="
-free -h
-
-echo -e "\n=== Network Interfaces ==="
-ip link show
-
-echo -e "\n=== NIC Capabilities ==="
-for iface in $(ls /sys/class/net/ | grep -v lo); do
-    echo "Interface: $iface"
-    ethtool $iface 2>/dev/null | grep -E "Speed|Duplex|Link detected" || true
-    echo "---"
-done
-
-echo -e "\n=== Build Tools ==="
-gcc --version | head -n1
-cmake --version | head -n1
-make --version | head -n1
-
-echo -e "\n=== Node.js & npm ==="
-node --version
-npm --version
-
-echo -e "\n=== OpenSSL ==="
-openssl version
-
-echo -e "\n=== VM Detection ==="
-if [ -f /sys/hypervisor/type ]; then
-    echo "Running in VM: $(cat /sys/hypervisor/type)"
-    systemd-detect-virt
-else
-    echo "Running on bare metal"
+# Check systemd availability
+if ! command -v systemctl &> /dev/null; then
+    echo "ERROR: systemd is not available. This script requires systemd."
+    ERRORS=$((ERRORS + 1))
+    exit 1
 fi
 
-echo -e "\n=== QEMU Guest Agent (Proxmox) ==="
-systemctl is-active qemu-guest-agent 2>/dev/null || echo "Not installed"
+# System Information
+echo -e "\n=== System Information ==="
+if command -v uname &> /dev/null; then
+    uname -a
+else
+    echo "WARNING: uname not found"
+    WARNINGS=$((WARNINGS + 1))
+fi
 
-echo -e "\n=== VMware Tools ==="
-systemctl is-active open-vm-tools 2>/dev/null || echo "Not installed"
+if command -v lsb_release &> /dev/null; then
+    lsb_release -a 2>/dev/null
+else
+    echo "WARNING: lsb_release not found. Install lsb-release package."
+    WARNINGS=$((WARNINGS + 1))
+    if [ -f /etc/os-release ]; then
+        cat /etc/os-release
+    fi
+fi
 
+# Hypervisor Detection (Primary Method)
+echo -e "\n=== Virtualization Detection ==="
+if command -v systemd-detect-virt &> /dev/null; then
+    VIRT_TYPE=$(systemd-detect-virt)
+    VIRT_EXIT=$?
+
+    if [ $VIRT_EXIT -eq 0 ] && [ "$VIRT_TYPE" != "none" ]; then
+        echo "Environment: Virtual Machine"
+        echo "Hypervisor: $VIRT_TYPE"
+        IS_VM=true
+
+        case "$VIRT_TYPE" in
+            kvm|qemu)
+                echo "Platform: KVM/QEMU (likely Proxmox or libvirt)"
+                PLATFORM="proxmox"
+                ;;
+            vmware)
+                echo "Platform: VMware ESXi/Workstation"
+                PLATFORM="vmware"
+                ;;
+            microsoft)
+                echo "Platform: Microsoft Hyper-V"
+                PLATFORM="hyperv"
+                ;;
+            xen)
+                echo "Platform: Xen"
+                PLATFORM="xen"
+                ;;
+            oracle)
+                echo "Platform: Oracle VirtualBox"
+                PLATFORM="virtualbox"
+                ;;
+            *)
+                echo "Platform: Other ($VIRT_TYPE)"
+                PLATFORM="other"
+                ;;
+        esac
+    else
+        echo "Environment: Bare Metal"
+        IS_VM=false
+        PLATFORM="baremetal"
+    fi
+else
+    echo "ERROR: systemd-detect-virt not found. Cannot detect virtualization."
+    ERRORS=$((ERRORS + 1))
+    IS_VM=false
+    PLATFORM="unknown"
+fi
+
+# CPU Information
+echo -e "\n=== CPU Information ==="
+if command -v lscpu &> /dev/null; then
+    lscpu | grep -E "Model name|Architecture|CPU\(s\)|Thread|Core|Socket|Virtualization"
+
+    echo -e "\n--- CPU Instruction Sets ---"
+    AVAILABLE_INSTRUCTIONS=$(lscpu | grep -oE 'sse4_2|avx|avx2|avx512f' | sort -u | tr '\n' ' ')
+    if [ -n "$AVAILABLE_INSTRUCTIONS" ]; then
+        echo "Available: $AVAILABLE_INSTRUCTIONS"
+    else
+        echo "No advanced SIMD instructions detected (SSE4.2, AVX, AVX2, AVX-512)"
+    fi
+
+    if [ "$IS_VM" = true ]; then
+        echo "NOTE: In virtualized environments, CPU features depend on hypervisor passthrough."
+    fi
+else
+    echo "WARNING: lscpu not found"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Memory Information
+echo -e "\n=== Memory Information ==="
+if command -v free &> /dev/null; then
+    free -h
+else
+    echo "WARNING: free command not found"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Network Interfaces
+echo -e "\n=== Network Interfaces ==="
+if command -v ip &> /dev/null; then
+    ip link show
+
+    echo -e "\n--- NIC Capabilities ---"
+    if command -v ethtool &> /dev/null; then
+        for iface in $(ls /sys/class/net/ 2>/dev/null | grep -v lo); do
+            echo "Interface: $iface"
+
+            DRIVER=$(readlink /sys/class/net/$iface/device/driver 2>/dev/null | xargs basename 2>/dev/null)
+            if [ "$DRIVER" = "virtio_net" ] || [ "$DRIVER" = "virtio-pci" ]; then
+                echo "  Driver: $DRIVER (VirtIO - virtualized NIC)"
+                echo "  Note: Speed/Duplex may show 'Unknown' - this is normal for VirtIO"
+            else
+                echo "  Driver: ${DRIVER:-Unknown}"
+            fi
+
+            SPEED=$(ethtool $iface 2>/dev/null | grep "Speed:" | awk '{print $2}')
+            DUPLEX=$(ethtool $iface 2>/dev/null | grep "Duplex:" | awk '{print $2}')
+            LINK=$(ethtool $iface 2>/dev/null | grep "Link detected:" | awk '{print $3}')
+
+            echo "  Speed: ${SPEED:-Unknown}"
+            echo "  Duplex: ${DUPLEX:-Unknown}"
+            echo "  Link: ${LINK:-Unknown}"
+            echo "---"
+        done
+    else
+        echo "WARNING: ethtool not found. Install ethtool package."
+        WARNINGS=$((WARNINGS + 1))
+    fi
+else
+    echo "WARNING: ip command not found"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Build Tools Verification
+echo -e "\n=== Build Tools ==="
+if command -v gcc &> /dev/null; then
+    echo "gcc: $(gcc --version | head -n1)"
+else
+    echo "ERROR: gcc not found. Install build-essential package."
+    ERRORS=$((ERRORS + 1))
+fi
+
+if command -v g++ &> /dev/null; then
+    echo "g++: $(g++ --version | head -n1)"
+else
+    echo "ERROR: g++ not found. Install build-essential package."
+    ERRORS=$((ERRORS + 1))
+fi
+
+if command -v make &> /dev/null; then
+    echo "make: $(make --version | head -n1)"
+else
+    echo "ERROR: make not found. Install build-essential package."
+    ERRORS=$((ERRORS + 1))
+fi
+
+if command -v cmake &> /dev/null; then
+    echo "cmake: $(cmake --version | head -n1)"
+else
+    echo "ERROR: cmake not found. Install cmake package."
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Node.js and npm
+echo -e "\n=== Node.js & npm ==="
+if command -v node &> /dev/null; then
+    NODE_VERSION=$(node --version)
+    echo "Node.js: $NODE_VERSION"
+
+    NODE_MAJOR=$(echo $NODE_VERSION | sed 's/v\([0-9]*\).*/\1/')
+    if [ "$NODE_MAJOR" -lt 18 ]; then
+        echo "WARNING: Node.js < v18. Consider upgrading for best compatibility."
+        WARNINGS=$((WARNINGS + 1))
+    fi
+else
+    echo "ERROR: Node.js not found. Install nodejs package."
+    ERRORS=$((ERRORS + 1))
+fi
+
+if command -v npm &> /dev/null; then
+    echo "npm: $(npm --version)"
+else
+    echo "ERROR: npm not found. Install npm package."
+    ERRORS=$((ERRORS + 1))
+fi
+
+# OpenSSL
+echo -e "\n=== OpenSSL ==="
+if command -v openssl &> /dev/null; then
+    echo "OpenSSL: $(openssl version)"
+else
+    echo "ERROR: OpenSSL not found. Install openssl package."
+    ERRORS=$((ERRORS + 1))
+fi
+
+if [ -f /usr/include/openssl/ssl.h ]; then
+    echo "OpenSSL dev libraries: Installed"
+else
+    echo "ERROR: OpenSSL dev libraries not found. Install libssl-dev package."
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Hypervisor-Specific Guest Tools Verification
+echo -e "\n=== Guest Tools Verification ==="
+if [ "$IS_VM" = true ]; then
+    case "$PLATFORM" in
+        proxmox)
+            echo "Detected Proxmox/KVM environment"
+
+            if systemctl is-active --quiet qemu-guest-agent 2>/dev/null; then
+                echo "✓ QEMU Guest Agent service: Active"
+
+                if [ -e /dev/virtio-ports/org.qemu.guest_agent.0 ]; then
+                    echo "✓ QEMU Guest Agent device: Present"
+                else
+                    echo "WARNING: QEMU Guest Agent service active but virtio device not found."
+                    WARNINGS=$((WARNINGS + 1))
+                fi
+            elif systemctl list-unit-files qemu-guest-agent.service &>/dev/null; then
+                echo "✗ QEMU Guest Agent: Installed but not active"
+                WARNINGS=$((WARNINGS + 1))
+            else
+                echo "✗ QEMU Guest Agent: Not installed (recommended)"
+                WARNINGS=$((WARNINGS + 1))
+            fi
+            ;;
+
+        vmware)
+            echo "Detected VMware environment"
+
+            if systemctl is-active --quiet open-vm-tools 2>/dev/null; then
+                echo "✓ VMware Tools (open-vm-tools): Active"
+            elif systemctl list-unit-files open-vm-tools.service &>/dev/null; then
+                echo "✗ VMware Tools: Installed but not active"
+                WARNINGS=$((WARNINGS + 1))
+            else
+                echo "✗ VMware Tools: Not installed (recommended)"
+                WARNINGS=$((WARNINGS + 1))
+            fi
+            ;;
+
+        *)
+            echo "Environment: $VIRT_TYPE"
+            echo "No specific guest tools check for this hypervisor."
+            ;;
+    esac
+else
+    echo "Running on bare metal - guest tools not applicable"
+fi
+
+# Network Stack Optimization
 echo -e "\n=== Network Optimization ==="
-sysctl net.core.rmem_max net.core.wmem_max net.ipv4.tcp_congestion_control
+if command -v sysctl &> /dev/null; then
+    echo "Current network buffer settings:"
+    sysctl net.core.rmem_max net.core.wmem_max 2>/dev/null || echo "Not configured"
 
-echo -e "\n=== Setup Complete ==="
+    echo -e "\nTCP congestion control:"
+    sysctl net.ipv4.tcp_congestion_control 2>/dev/null || echo "Not configured"
+
+    if lsmod | grep -q tcp_bbr 2>/dev/null; then
+        echo "✓ BBR module: Loaded"
+    else
+        echo "✗ BBR module: Not loaded"
+        WARNINGS=$((WARNINGS + 1))
+    fi
+
+    if [ -f /etc/sysctl.d/99-udpst-network.conf ]; then
+        echo "✓ Network optimization config: Present"
+    else
+        echo "✗ Network optimization config: Not found"
+        WARNINGS=$((WARNINGS + 1))
+    fi
+else
+    echo "WARNING: sysctl not found"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Performance Tools
+echo -e "\n=== Performance Monitoring Tools ==="
+PERF_TOOLS=("htop" "iotop" "iftop" "nethogs" "tcpdump")
+for tool in "${PERF_TOOLS[@]}"; do
+    if command -v $tool &> /dev/null; then
+        echo "✓ $tool: Installed"
+    else
+        echo "○ $tool: Not installed (optional)"
+    fi
+done
+
+# Summary
+echo -e "\n=========================================="
+echo "VERIFICATION SUMMARY"
+echo "=========================================="
+echo "Environment: $PLATFORM"
+if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
+    echo "Status: ✓ ALL CHECKS PASSED"
+    echo "System is ready for OB-UDPST installation."
+    exit 0
+elif [ $ERRORS -eq 0 ]; then
+    echo "Status: ⚠ WARNINGS DETECTED ($WARNINGS)"
+    echo "System is functional but has non-critical issues."
+    exit 0
+else
+    echo "Status: ✗ ERRORS DETECTED"
+    echo "Errors: $ERRORS | Warnings: $WARNINGS"
+    echo "Please address the errors above before proceeding."
+    exit 1
+fi
+```
+
+**Save this script for easy re-verification:**
+
+```bash
+# Create the verification script
+sudo tee /usr/local/bin/verify-udpst-install.sh > /dev/null <<'SCRIPT_EOF'
+#!/bin/bash
+# Copy the entire script above starting from "set +e" to the final "fi"
+SCRIPT_EOF
+
+# Make it executable
+sudo chmod +x /usr/local/bin/verify-udpst-install.sh
+
+# Run the verification
+verify-udpst-install.sh
 ```
 
 #### Post-Installation Notes
