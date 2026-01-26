@@ -2,6 +2,55 @@
 
 ## Version Log
 
+### v1.0.1 - 2026-01-26
+
+**Documentation and Installation Improvements**
+
+#### Overview
+This release focuses on fixing critical issues in the Debian 13 installation documentation and verification script, ensuring accurate detection across bare metal, KVM/QEMU (Proxmox), and VMware environments.
+
+#### Changes
+
+**Installation Documentation (WEB_GUI_README.md)**
+- Fixed package installation order: system utilities (curl, wget, lsb-release) now installed first before being used
+- Removed incorrect `virtio-win` package that doesn't exist on Debian
+- Corrected Proxmox VM guest packages: `qemu-guest-agent` and `qemu-utils` properly installed together
+- Added repository clone instructions with GitHub classic token authentication example
+- Reorganized Quick Start section with proper step numbering (1-5)
+- Added clear instructions for creating GitHub personal access tokens
+
+**Verification Script Improvements**
+- Fixed virtualization detection: now uses `systemd-detect-virt` as primary method instead of incorrect `/sys/hypervisor/type` check
+- Proper hypervisor classification: KVM/QEMU, VMware, Hyper-V, Xen, VirtualBox, and bare metal
+- Conditional guest tools verification based on detected platform
+- Enhanced QEMU Guest Agent validation: checks both service state and virtio device presence (`/dev/virtio-ports/org.qemu.guest_agent.0`)
+- VirtIO network interface detection with clarification that "Speed: Unknown" is normal
+- Tool availability checks for all commands before execution (gcc, cmake, node, npm, ethtool, etc.)
+- Error and warning tracking with accurate exit codes
+- Node.js version validation (warns if < v18)
+- OpenSSL development libraries verification
+- BBR module load verification
+- Network optimization config file presence check
+- Conditional status messages based on actual verification results
+
+**Fixed Critical Issues**
+1. Incorrect VM detection that reported KVM/QEMU VMs as bare metal
+2. Missing curl dependency before NodeSource installation
+3. Package installation errors on Proxmox VMs
+4. Misleading "Setup Complete" message regardless of errors
+5. Missing repository clone instructions in Quick Start
+
+#### Breaking Changes
+None
+
+#### Migration Notes
+- Users following previous installation instructions should re-run the verification script
+- Proxmox VM users should uninstall any incorrectly installed packages and follow updated instructions
+- The verification script now requires systemd (already standard on Debian 13)
+
+#### Known Issues
+None
+
 ### v1.0.0 - 2025-01-23
 
 **Initial Release: Web GUI and Control API forc**

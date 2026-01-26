@@ -276,6 +276,17 @@ Complete package installation for both bare metal and virtualized environments.
 # Update package list
 sudo apt-get update
 
+# Install essential system utilities first (needed for other installations)
+sudo apt-get install -y \
+    curl \
+    wget \
+    vim \
+    nano \
+    screen \
+    tmux \
+    rsync \
+    lsb-release
+
 # Install build essentials for OB-UDPST
 sudo apt-get install -y \
     build-essential \
@@ -321,16 +332,6 @@ sudo apt-get install -y \
     iftop \
     sysstat \
     dstat
-
-# Install system utilities
-sudo apt-get install -y \
-    curl \
-    wget \
-    vim \
-    nano \
-    screen \
-    tmux \
-    rsync
 ```
 
 #### Network Performance Optimization Packages
@@ -388,17 +389,17 @@ sudo ethtool -T eth0  # Replace eth0 with your interface
 #### Proxmox VM Guest Packages
 
 ```bash
-# Install QEMU Guest Agent (enables better VM management)
-sudo apt-get install -y qemu-guest-agent
+# Install QEMU Guest Agent and utilities (enables better VM management)
+sudo apt-get install -y \
+    qemu-guest-agent \
+    qemu-utils
 
 # Enable and start the agent
 sudo systemctl enable qemu-guest-agent
 sudo systemctl start qemu-guest-agent
 
-# Install VirtIO drivers and utilities
-sudo apt-get install -y \
-    virtio-win \
-    qemu-utils
+# Verify guest agent is running
+sudo systemctl status qemu-guest-agent
 
 # Install cloud-init (optional, for automated provisioning)
 sudo apt-get install -y cloud-init
@@ -944,10 +945,33 @@ verify-udpst-install.sh
 
 ## Quick Start
 
-### 1. Build OB-UDPST Binary
+### 1. Clone the Repository
+
+First, clone the OB-UDPST repository from GitHub. You can authenticate using a classic personal access token:
 
 ```bash
-cd /path/to/ob-udpst
+# Clone using HTTPS with classic token
+# Replace YOUR_TOKEN with your GitHub classic personal access token
+git clone https://<YOUR_TOKEN>@github.com/Vibemiko/obudpst.git
+
+# Or clone using SSH (if you have SSH keys configured)
+git clone git@github.com:Vibemiko/obudpst.git
+
+# Navigate to the project directory
+cd obudpst
+```
+
+**Note**: To create a GitHub classic personal access token:
+1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Click "Generate new token (classic)"
+3. Select the `repo` scope for full repository access
+4. Generate and copy the token
+5. Use it in the clone command above
+
+### 2. Build OB-UDPST Binary
+
+```bash
+# Build the binary
 cmake .
 make
 ```
@@ -957,11 +981,11 @@ Verify the binary:
 ./udpst -?
 ```
 
-### 2. Set Up Supabase
+### 3. Set Up Supabase
 
 The database is already configured. Environment variables are available in the project.
 
-### 3. Install and Run Backend
+### 4. Install and Run Backend
 
 ```bash
 cd backend
@@ -996,7 +1020,7 @@ Start the backend:
 npm start
 ```
 
-### 4. Install and Run Frontend
+### 5. Install and Run Frontend
 
 ```bash
 cd frontend
