@@ -8,6 +8,7 @@ Production-grade web-based orchestration layer for the OB-UDPST (Open Broadband 
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
+- [Updating Your Installation](#updating-your-installation)
 - [Detailed Setup](#detailed-setup)
 - [Usage Guide](#usage-guide)
 - [API Documentation](#api-documentation)
@@ -1077,6 +1078,93 @@ See `config-examples/` directory for different deployment scenarios.
 ### 4. Choose Your Deployment Method
 
 Now pick from Option A, B, or C above based on your needs
+
+## Updating Your Installation
+
+When you need to update your OB-UDPST Web GUI installation with the latest changes from the git repository, follow these instructions to ensure a clean update with all caches cleared.
+
+### Quick Update (Recommended)
+
+Use the automated update script:
+
+```bash
+chmod +x update-project.sh
+./update-project.sh
+```
+
+This script will:
+1. Stash any uncommitted local changes
+2. Clear all git and npm caches
+3. Pull the latest changes from the repository
+4. Remove all node_modules directories
+5. Reinstall all dependencies
+6. Rebuild the frontend
+7. Verify the build completed successfully
+
+### Manual Update Process
+
+If you prefer to update manually or need more control:
+
+```bash
+# 1. Save any local changes
+git stash
+
+# 2. Clear git cache
+git rm -r --cached .
+git reset --hard HEAD
+
+# 3. Pull latest changes
+git pull origin main
+
+# 4. Clear npm cache
+npm cache clean --force
+
+# 5. Remove all node_modules
+rm -rf node_modules backend/node_modules frontend/node_modules
+
+# 6. Clear build artifacts
+rm -rf frontend/dist frontend/.vite
+
+# 7. Reinstall all dependencies
+npm run install:all
+
+# 8. Rebuild the project
+npm run build
+
+# 9. Restore your changes (if stashed)
+git stash pop
+```
+
+### After Updating
+
+Once the update is complete:
+
+1. **Review changes**: Check `CHANGELOG.MD` and `RELEASE_NOTE.md` for important updates
+2. **Update environment**: Compare your `.env` with `.env.example` for new variables
+3. **Restart services**:
+   - For local development: `./start-local.sh`
+   - For Docker: `./start-docker.sh`
+
+### Important Notes
+
+- **Always backup your `.env` files** before updating
+- If using Docker, rebuild containers: `docker-compose up --build --force-recreate`
+- Test the update in a development environment before updating production
+- If you have custom modifications, document them and reapply after update
+
+### Troubleshooting Updates
+
+If you encounter issues during the update:
+
+1. **Build fails**: Try clearing all caches again with `npm cache clean --force`
+2. **Merge conflicts**: Resolve manually or reset to remote: `git reset --hard origin/main`
+3. **Missing dependencies**: Delete lock files and reinstall:
+   ```bash
+   rm package-lock.json backend/package-lock.json frontend/package-lock.json
+   npm run install:all
+   ```
+
+For complete update documentation and troubleshooting, see [GIT_UPDATE_GUIDE.md](./GIT_UPDATE_GUIDE.md).
 
 ## Detailed Setup
 
