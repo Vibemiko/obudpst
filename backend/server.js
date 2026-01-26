@@ -25,8 +25,11 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(config.port, () => {
-  console.log(`OB-UDPST Control API running on port ${config.port}`);
+app.listen(config.port, config.host, () => {
+  console.log(`OB-UDPST Control API running on ${config.host}:${config.port}`);
   console.log(`Environment: ${config.nodeEnv}`);
   console.log(`Binary path: ${config.udpst.binaryPath}`);
+  if (config.host === '0.0.0.0') {
+    console.log(`Server accessible on all network interfaces`);
+  }
 });

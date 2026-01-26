@@ -6,7 +6,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "start:network": "HOST=0.0.0.0 node server.js",
+    "start:local": "HOST=localhost node server.js",
+    "dev:network": "HOST=0.0.0.0 node --watch server.js"
   },
   "keywords": [
     "udpst",

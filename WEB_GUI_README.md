@@ -945,9 +945,70 @@ verify-udpst-install.sh
 
 ## Quick Start
 
-### 1. Clone the Repository
+Choose your deployment method:
 
-First, clone the OB-UDPST repository from GitHub. You can authenticate using a classic personal access token:
+### Option A: Run Both Together (Recommended for Beginners)
+
+**Using Startup Script:**
+```bash
+# 1. Clone and navigate to project
+git clone https://<YOUR_TOKEN>@github.com/Vibemiko/obudpst.git
+cd obudpst
+
+# 2. Build OB-UDPST binary
+cmake .
+make
+
+# 3. Configure environment
+cp .env.example .env
+nano .env  # Add your Supabase credentials
+
+# 4. Run both services
+./start-local.sh
+```
+
+Access: http://localhost:5173 (frontend) and http://localhost:3000 (backend API)
+
+### Option B: Run Services Separately
+
+**Terminal 1 - Backend:**
+```bash
+./start-local-backend.sh
+```
+
+**Terminal 2 - Frontend:**
+```bash
+./start-local-frontend.sh
+```
+
+### Option C: Docker Deployment (Production)
+
+**Prerequisites:** Docker and Docker Compose installed
+
+```bash
+# 1. Clone and navigate to project
+git clone https://<YOUR_TOKEN>@github.com/Vibemiko/obudpst.git
+cd obudpst
+
+# 2. Build OB-UDPST binary
+cmake .
+make
+
+# 3. Configure environment
+cp .env.example .env
+nano .env  # Add your Supabase credentials
+
+# 4. Start Docker containers
+./start-docker.sh
+```
+
+Access: http://localhost (frontend on port 80) and http://localhost:3000 (backend API)
+
+---
+
+## Detailed Quick Start Steps
+
+### 1. Clone the Repository
 
 ```bash
 # Clone using HTTPS with classic token
@@ -974,27 +1035,14 @@ cd obudpst
 # Build the binary
 cmake .
 make
-```
 
-Verify the binary:
-```bash
+# Verify the binary
 ./udpst -?
 ```
 
-### 3. Set Up Supabase
+### 3. Configure Environment
 
-The database is already configured. Environment variables are available in the project.
-
-### 4. Install and Run Backend
-
-```bash
-cd backend
-npm install
-```
-
-**IMPORTANT - Environment Configuration:**
-
-The backend requires its own `.env` file in the `backend/` directory. This file is NOT committed to Git (for security), so you must create it:
+The project uses a **single root `.env` file** for all configuration:
 
 ```bash
 # Copy the example file
@@ -1004,33 +1052,31 @@ cp .env.example .env
 nano .env
 ```
 
-Configure the following variables in `backend/.env`:
+**Required Configuration:**
 ```env
-SUPABASE_URL=your_supabase_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
+# Supabase (Frontend - with VITE_ prefix)
+VITE_SUPABASE_URL=your_supabase_url_here
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+
+# Supabase (Backend - without VITE_ prefix)
+SUPABASE_URL=your_supabase_url_here
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
+
+# Network Configuration
+HOST=0.0.0.0
 PORT=3000
-UDPST_BINARY_PATH=../udpst
-NODE_ENV=development
+VITE_HOST=0.0.0.0
+VITE_PORT=5173
+
+# Binary Path
+UDPST_BINARY_PATH=./udpst
 ```
 
-**Note**: The backend uses `backend/.env` (no `VITE_` prefix), while the frontend uses the root `.env` file (with `VITE_` prefix). These are separate files with different variables.
+See `config-examples/` directory for different deployment scenarios.
 
-Start the backend:
-```bash
-npm start
-```
+### 4. Choose Your Deployment Method
 
-### 5. Install and Run Frontend
-
-```bash
-cd frontend
-
-npm install
-
-npm run dev
-```
-
-Access the GUI at: http://localhost:5173
+Now pick from Option A, B, or C above based on your needs
 
 ## Detailed Setup
 
@@ -1161,51 +1207,351 @@ GET    /api/binary/info       - Get binary information
 │   │   │   └── parser.js      # JSON output parser
 │   │   └── config.js          # Configuration loader
 │   ├── server.js              # Express server entry point
-│   ├── package.json
-│   └── .env.example
+│   ├── Dockerfile             # Backend container image
+│   ├── .dockerignore          # Docker ignore patterns
+│   └── package.json
 │
 ├── frontend/                   # React frontend
 │   ├── src/
 │   │   ├── components/        # Reusable UI components
-│   │   │   ├── Button.jsx
-│   │   │   ├── Card.jsx
-│   │   │   ├── Input.jsx
-│   │   │   ├── Select.jsx
-│   │   │   └── StatusBadge.jsx
 │   │   ├── pages/             # Page components
-│   │   │   ├── ServerPage.jsx
-│   │   │   ├── ClientPage.jsx
-│   │   │   ├── HistoryPage.jsx
-│   │   │   └── AboutPage.jsx
 │   │   ├── services/
 │   │   │   └── api.js         # API client
-│   │   ├── App.jsx            # Main app component
-│   │   ├── main.jsx           # Entry point
-│   │   └── index.css          # Tailwind styles
-│   ├── index.html
+│   │   ├── App.jsx
+│   │   ├── main.jsx
+│   │   └── index.css
+│   ├── Dockerfile             # Frontend container image
+│   ├── nginx.conf             # Nginx configuration
+│   ├── .dockerignore          # Docker ignore patterns
 │   ├── vite.config.js
-│   ├── tailwind.config.js
 │   └── package.json
+│
+├── config-examples/           # Deployment configuration examples
+│   ├── local-development.env  # Local dev settings
+│   ├── network-access.env     # LAN access settings
+│   ├── docker-deployment.env  # Docker settings
+│   └── README.md              # Configuration guide
 │
 ├── supabase/
 │   └── migrations/            # Database migrations
 │
+├── docker-compose.yml         # Docker orchestration
+├── start-local.sh             # Run both services locally
+├── start-local-backend.sh     # Run backend only
+├── start-local-frontend.sh    # Run frontend only
+├── start-docker.sh            # Run Docker containers
+├── .env.example               # Environment template
 ├── API_SPECIFICATION.md       # REST API documentation
-├── WEB_GUI_README.md         # This file
+├── WEB_GUI_README.md          # This file
 └── [OB-UDPST C source files]
 ```
 
+## Docker Deployment
+
+### Architecture
+
+The Docker deployment uses separate containers for frontend and backend with Docker networking:
+
+```
+                    ┌─────────────────────────────────────┐
+                    │      Docker Host (0.0.0.0:80)      │
+                    └──────────────┬──────────────────────┘
+                                   │
+                    ┌──────────────▼──────────────────────┐
+                    │   Frontend Container (nginx)        │
+                    │   - Serves React build              │
+                    │   - Proxies /api to backend         │
+                    │   Port: 80                          │
+                    └──────────────┬──────────────────────┘
+                                   │ obudpst-network
+                    ┌──────────────▼──────────────────────┐
+                    │   Backend Container (Node.js)       │
+                    │   - Express API server              │
+                    │   - UDPST process management        │
+                    │   Port: 3000 (internal)             │
+                    └──────────────┬──────────────────────┘
+                                   │
+                    ┌──────────────▼──────────────────────┐
+                    │   Supabase (PostgreSQL)             │
+                    │   External service                  │
+                    └─────────────────────────────────────┘
+```
+
+### Quick Docker Start
+
+```bash
+# 1. Ensure .env is configured
+cp .env.example .env
+nano .env  # Add Supabase credentials
+
+# 2. Start containers
+./start-docker.sh
+
+# Or manually:
+docker-compose up --build
+
+# Stop containers
+docker-compose down
+
+# View logs
+docker-compose logs -f
+
+# Rebuild after changes
+docker-compose up --build --force-recreate
+```
+
+### Docker Configuration
+
+The `docker-compose.yml` file orchestrates both services:
+
+**Services:**
+- **backend**: Node.js API server on port 3000
+- **frontend**: Nginx serving React app on port 80
+
+**Features:**
+- Health checks for both services
+- Automatic restart on failure
+- Shared Docker network (obudpst-network)
+- Volume mounting for UDPST binary
+- Environment variable injection
+
+### Environment Variables for Docker
+
+When using Docker, the `.env` file at project root is used:
+
+```env
+# Supabase (required)
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# Docker uses these internally
+HOST=0.0.0.0
+PORT=3000
+UDPST_BINARY_PATH=/app/udpst
+
+# Frontend uses nginx proxy, no VITE_API_URL needed
+```
+
+### Docker Commands
+
+**Build and start in detached mode:**
+```bash
+docker-compose up -d --build
+```
+
+**View running containers:**
+```bash
+docker ps
+```
+
+**View logs:**
+```bash
+# All services
+docker-compose logs -f
+
+# Backend only
+docker-compose logs -f backend
+
+# Frontend only
+docker-compose logs -f frontend
+```
+
+**Execute commands in containers:**
+```bash
+# Backend shell
+docker-compose exec backend sh
+
+# Check backend health
+docker-compose exec backend wget -qO- http://localhost:3000/health
+```
+
+**Stop and remove:**
+```bash
+# Stop containers
+docker-compose stop
+
+# Stop and remove containers
+docker-compose down
+
+# Remove containers and volumes
+docker-compose down -v
+```
+
+### Docker Networking
+
+The Docker setup creates a bridge network called `obudpst-network`:
+
+- **Container-to-Container**: Frontend connects to backend using service name `backend`
+- **External Access**: Host port 80 → Frontend container
+- **Backend API**: Host port 3000 → Backend container (optional for debugging)
+
+### Accessing from Network
+
+To access the Docker deployment from other devices:
+
+1. **Configure firewall:**
+```bash
+sudo ufw allow 80/tcp
+sudo ufw allow 3000/tcp
+```
+
+2. **Access from LAN:**
+- Frontend: http://YOUR_SERVER_IP
+- Backend API: http://YOUR_SERVER_IP:3000
+
+### Production Docker Considerations
+
+**Security:**
+- Run containers as non-root user
+- Use secrets management for sensitive data
+- Implement HTTPS with reverse proxy (nginx/traefik)
+- Regular security updates for base images
+
+**Performance:**
+- Use multi-stage builds (already configured)
+- Enable Docker BuildKit for faster builds
+- Consider resource limits in docker-compose.yml
+
+**Monitoring:**
+- Container health checks (configured)
+- Log aggregation (ELK, Loki, etc.)
+- Resource monitoring (Prometheus, Grafana)
+
+### Docker Troubleshooting
+
+**Issue: Containers fail to start**
+```bash
+# Check logs
+docker-compose logs
+
+# Rebuild from scratch
+docker-compose down
+docker-compose build --no-cache
+docker-compose up
+```
+
+**Issue: Backend can't connect to Supabase**
+- Verify .env contains correct Supabase credentials
+- Check SUPABASE_URL and SUPABASE_ANON_KEY (without VITE_ prefix)
+
+**Issue: Frontend shows connection errors**
+- Verify backend container is healthy: `docker ps`
+- Check nginx proxy configuration in frontend/nginx.conf
+- Inspect network: `docker network inspect obudpst-network`
+
+**Issue: UDPST binary not found**
+- Ensure udpst binary exists in project root
+- Check volume mount in docker-compose.yml
+- Verify UDPST_BINARY_PATH=/app/udpst in .env
+
+## Network Access from LAN/WAN
+
+To access the application from other devices on your network:
+
+### 1. Configure Environment
+
+Use the network access configuration template:
+```bash
+cp config-examples/network-access.env .env
+nano .env
+```
+
+Set `VITE_API_URL` to your server's IP:
+```env
+VITE_API_URL=http://192.168.1.100:3000
+```
+
+Find your IP:
+```bash
+# Linux
+ip addr show | grep inet
+
+# macOS
+ifconfig | grep inet
+```
+
+### 2. Configure Firewall
+
+**Debian/Ubuntu (ufw):**
+```bash
+sudo ufw allow 3000/tcp comment 'OB-UDPST Backend'
+sudo ufw allow 5173/tcp comment 'OB-UDPST Frontend'
+sudo ufw status
+```
+
+**CentOS/RHEL (firewalld):**
+```bash
+sudo firewall-cmd --permanent --add-port=3000/tcp
+sudo firewall-cmd --permanent --add-port=5173/tcp
+sudo firewall-cmd --reload
+```
+
+### 3. Start Services
+
+```bash
+./start-local.sh
+```
+
+### 4. Access from Network
+
+From any device on your network:
+- Frontend: http://YOUR_SERVER_IP:5173
+- Backend API: http://YOUR_SERVER_IP:3000/health
+
 ## Configuration
 
-### Backend Environment Variables
+### Environment Variables
+
+The project uses a **single root `.env` file** for all configuration. Both frontend and backend read from this file.
+
+#### Required Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `VITE_SUPABASE_URL` | Supabase URL (frontend) | https://xxx.supabase.co |
+| `VITE_SUPABASE_ANON_KEY` | Supabase key (frontend) | eyJhbGc... |
+| `SUPABASE_URL` | Supabase URL (backend) | https://xxx.supabase.co |
+| `SUPABASE_ANON_KEY` | Supabase key (backend) | eyJhbGc... |
+
+#### Network Configuration
+
+| Variable | Description | Default | Notes |
+|----------|-------------|---------|-------|
+| `HOST` | Backend bind interface | 0.0.0.0 | Use localhost for local-only |
+| `PORT` | Backend API port | 3000 | |
+| `VITE_HOST` | Frontend dev server interface | 0.0.0.0 | Use localhost for local-only |
+| `VITE_PORT` | Frontend dev server port | 5173 | |
+
+#### API Connection
+
+| Variable | Description | When to Use |
+|----------|-------------|-------------|
+| `VITE_API_URL` | Backend API URL | Network access or production |
+
+**Values:**
+- **Local development**: Leave empty/commented (uses Vite proxy)
+- **Network access**: `http://YOUR_SERVER_IP:3000`
+- **Docker**: Leave empty (nginx proxy handles it)
+- **Production**: Your production API URL
+
+#### Other Settings
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SUPABASE_URL` | Supabase project URL | Required |
-| `SUPABASE_ANON_KEY` | Supabase anonymous key | Required |
-| `PORT` | Backend API port | 3000 |
 | `UDPST_BINARY_PATH` | Path to udpst binary | ./udpst |
 | `NODE_ENV` | Environment mode | development |
+
+#### Configuration Examples
+
+See the `config-examples/` directory for complete configuration templates:
+
+- `local-development.env` - Single machine development
+- `network-access.env` - LAN/WAN accessible setup
+- `docker-deployment.env` - Docker container deployment
+
+Each template includes detailed comments explaining when and how to use each variable
 
 ### OB-UDPST Parameters
 
@@ -1316,13 +1662,15 @@ pkill udpst
 
 **Solution**:
 
-This error occurs when the backend cannot find Supabase credentials. On Bolt.new, ensure that:
+This error occurs when the backend cannot find Supabase credentials. Ensure that:
 
-1. The `backend/.env` file exists (not just the root `.env`)
-2. The file contains `SUPABASE_URL` and `SUPABASE_ANON_KEY` (without `VITE_` prefix)
+1. The root `.env` file exists in the project root directory
+2. The file contains both:
+   - `SUPABASE_URL` and `SUPABASE_ANON_KEY` (for backend, without `VITE_` prefix)
+   - `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (for frontend, with `VITE_` prefix)
 3. The values match your Supabase project credentials
 
-The backend looks for `.env` in its own directory (`backend/.env`), not the root directory. The root `.env` file with `VITE_*` variables is only for the frontend.
+The backend reads from the root `.env` file using a relative path. Both frontend and backend use the same root `.env` file but with different variable names.
 
 ### Test Fails to Start
 

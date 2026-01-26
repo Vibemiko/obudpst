@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:network": "vite --host 0.0.0.0",
+    "dev:local": "vite --host localhost",
+    "preview:network": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
     "react": "^18.2.0",
