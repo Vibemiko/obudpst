@@ -1,14 +1,12 @@
 import { spawn } from 'child_process';
 import { access, constants } from 'fs/promises';
 import { existsSync } from 'fs';
-import { hostname } from 'os';
 import { config } from '../config.js';
 import { parseUdpstOutput } from '../utils/parser.js';
 import * as db from './database.js';
 import { logger } from '../utils/logger.js';
 
 const runningProcesses = new Map();
-const MACHINE_ID = process.env.MACHINE_ID || hostname();
 
 function ensureBinaryExists() {
   if (!existsSync(config.udpst.binaryPath)) {
@@ -48,7 +46,7 @@ export async function checkBinary() {
 export async function startServer(params) {
   ensureBinaryExists();
 
-  const existingServer = await db.getActiveServerInstance(MACHINE_ID);
+  const existingServer = await db.getActiveServerInstance(config.machineId);
   if (existingServer && runningProcesses.has(existingServer.process_id)) {
     throw new Error('Server already running');
   }
@@ -94,7 +92,7 @@ export async function startServer(params) {
     port: params.port || config.udpst.defaultPort,
     interface: params.interface || '',
     config: params,
-    machineId: MACHINE_ID
+    machineId: config.machineId
   });
 
   if (params.daemon) {
@@ -128,7 +126,7 @@ export async function startServer(params) {
 }
 
 export async function stopServer() {
-  const serverInstance = await db.getActiveServerInstance(MACHINE_ID);
+  const serverInstance = await db.getActiveServerInstance(config.machineId);
 
   if (!serverInstance) {
     throw new Error('No server running');
@@ -155,12 +153,12 @@ export async function stopServer() {
 }
 
 export async function getServerStatus() {
-  const serverInstance = await db.getActiveServerInstance(MACHINE_ID);
+  const serverInstance = await db.getActiveServerInstance(config.machineId);
 
   if (!serverInstance) {
     return {
       running: false,
-      machineId: MACHINE_ID
+      machineId: config.machineId
     };
   }
 
@@ -175,7 +173,7 @@ export async function getServerStatus() {
     pid: serverInstance.pid,
     uptime,
     config: serverInstance.config,
-    machineId: MACHINE_ID
+    machineId: config.machineId
   };
 }
 

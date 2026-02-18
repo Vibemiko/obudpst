@@ -15,6 +15,15 @@ fi
 
 source .env
 
+if [ -z "$MACHINE_ID" ]; then
+    if [ -r /sys/class/dmi/id/product_uuid ]; then
+        export MACHINE_ID="$(cat /sys/class/dmi/id/product_uuid)"
+    else
+        export MACHINE_ID="$(hostname -s 2>/dev/null || hostname)"
+    fi
+fi
+echo "Machine ID: $MACHINE_ID"
+
 if [ -z "$SUPABASE_URL" ] || [ "$SUPABASE_URL" = "your_supabase_url_here" ]; then
     echo "Error: SUPABASE_URL not configured in .env file"
     exit 1

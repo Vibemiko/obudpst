@@ -1,7 +1,8 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join, isAbsolute } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
+import { hostname } from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -24,6 +25,23 @@ function resolveBinaryPath() {
   return join(PROJECT_ROOT, envPath);
 }
 
+function resolveMachineId() {
+  if (process.env.MACHINE_ID) {
+    return process.env.MACHINE_ID.trim();
+  }
+
+  try {
+    const uuid = readFileSync('/sys/class/dmi/id/product_uuid', 'utf8').trim();
+    if (uuid && uuid.length > 0) {
+      return uuid;
+    }
+  } catch (_) {
+    // File unavailable: Docker, non-Linux, restricted VMs — fall through
+  }
+
+  return hostname();
+}
+
 export const config = {
   host: process.env.HOST || '0.0.0.0',
   port: process.env.PORT || 3000,
@@ -39,6 +57,7 @@ export const config = {
     maxConcurrentTests: 10
   },
 
+  machineId: resolveMachineId(),
   projectRoot: PROJECT_ROOT,
   nodeEnv: process.env.NODE_ENV || 'development'
 };

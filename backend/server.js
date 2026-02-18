@@ -32,6 +32,7 @@ app.listen(config.port, config.host, () => {
     host: config.host,
     port: config.port,
     environment: config.nodeEnv,
+    machineId: config.machineId,
     binaryPath: config.udpst.binaryPath,
     networkAccess: config.host === '0.0.0.0' ? 'all interfaces' : 'restricted'
   });
