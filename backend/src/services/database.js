@@ -111,7 +111,8 @@ export async function createServerInstance(instanceData) {
       port: instanceData.port,
       interface: instanceData.interface || '',
       config: instanceData.config,
-      status: 'running'
+      status: 'running',
+      machine_id: instanceData.machineId
     }])
     .select()
     .single();
@@ -143,14 +144,19 @@ export async function getServerInstance(processId) {
   return data;
 }
 
-export async function getActiveServerInstance() {
-  const { data, error } = await supabase
+export async function getActiveServerInstance(machineId) {
+  let query = supabase
     .from('server_instances')
     .select('*')
     .eq('status', 'running')
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+
+  if (machineId) {
+    query = query.eq('machine_id', machineId);
+  }
+
+  const { data, error } = await query.maybeSingle();
 
   if (error) throw error;
   return data;

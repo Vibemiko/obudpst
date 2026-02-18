@@ -85,6 +85,13 @@ export default function ServerPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card title="Server Status">
           <div className="space-y-4">
+            {serverStatus?.machineId && (
+              <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-md border border-gray-200">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">This Machine</span>
+                <span className="text-xs font-mono text-gray-700">{serverStatus.machineId}</span>
+              </div>
+            )}
+
             {serverStatus?.running ? (
               <>
                 <div className="flex items-center justify-between">

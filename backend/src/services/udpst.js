@@ -1,12 +1,14 @@
 import { spawn } from 'child_process';
 import { access, constants } from 'fs/promises';
 import { existsSync } from 'fs';
+import { hostname } from 'os';
 import { config } from '../config.js';
 import { parseUdpstOutput } from '../utils/parser.js';
 import * as db from './database.js';
 import { logger } from '../utils/logger.js';
 
 const runningProcesses = new Map();
+const MACHINE_ID = process.env.MACHINE_ID || hostname();
 
 function ensureBinaryExists() {
   if (!existsSync(config.udpst.binaryPath)) {
@@ -46,7 +48,7 @@ export async function checkBinary() {
 export async function startServer(params) {
   ensureBinaryExists();
 
-  const existingServer = await db.getActiveServerInstance();
+  const existingServer = await db.getActiveServerInstance(MACHINE_ID);
   if (existingServer && runningProcesses.has(existingServer.process_id)) {
     throw new Error('Server already running');
   }
@@ -91,7 +93,8 @@ export async function startServer(params) {
     pid: proc.pid,
     port: params.port || config.udpst.defaultPort,
     interface: params.interface || '',
-    config: params
+    config: params,
+    machineId: MACHINE_ID
   });
 
   if (params.daemon) {
@@ -125,7 +128,7 @@ export async function startServer(params) {
 }
 
 export async function stopServer() {
-  const serverInstance = await db.getActiveServerInstance();
+  const serverInstance = await db.getActiveServerInstance(MACHINE_ID);
 
   if (!serverInstance) {
     throw new Error('No server running');
@@ -152,11 +155,12 @@ export async function stopServer() {
 }
 
 export async function getServerStatus() {
-  const serverInstance = await db.getActiveServerInstance();
+  const serverInstance = await db.getActiveServerInstance(MACHINE_ID);
 
   if (!serverInstance) {
     return {
-      running: false
+      running: false,
+      machineId: MACHINE_ID
     };
   }
 
@@ -170,7 +174,8 @@ export async function getServerStatus() {
     processId: serverInstance.process_id,
     pid: serverInstance.pid,
     uptime,
-    config: serverInstance.config
+    config: serverInstance.config,
+    machineId: MACHINE_ID
   };
 }
 
@@ -193,8 +198,6 @@ export async function startClientTest(params) {
   } else if (params.testType === 'downstream') {
     args.push('-d');
   }
-
-  args.push(...params.servers);
 
   if (params.port && params.port !== config.udpst.defaultPort) {
     args.push('-p', params.port.toString());
@@ -229,6 +232,8 @@ export async function startClientTest(params) {
   if (params.jsonOutput) {
     args.push('-f', 'json');
   }
+
+  args.push(...params.servers);
 
   const proc = spawn(config.udpst.binaryPath, args, {
     stdio: ['ignore', 'pipe', 'pipe']
