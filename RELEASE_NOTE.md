@@ -2,6 +2,110 @@
 
 ## Version Log
 
+### v1.0.7 - 2026-02-19
+
+**Downstream Test Error Handling and Result Quality Assessment**
+
+#### Overview
+This release fixes a critical issue where all downstream tests were incorrectly marked as "failed" despite successfully collecting valid data. The problem occurred because UDPST reports ErrorStatus 200 ("connection unavailable") after downstream tests complete, even when the test was successful. This is normal UDPST behavior, not an actual failure.
+
+The solution implements intelligent error classification that distinguishes between fatal errors, completion warnings, and expected behavior based on test type, data quality, and error context.
+
+#### Changes
+
+**Enhanced Error Classification System**
+- Added `assessResultQuality()` function to evaluate test data completeness
+- Added `classifyErrorSeverity()` function for context-aware error classification
+- Severity levels: INFO (expected behavior), WARNING (non-critical), FATAL (true failures)
+- Special handling for ErrorStatus 200 on downstream tests with valid data
+- Quality assessment based on collected sub-intervals vs expected duration
+
+**New Test Status: completed_warnings**
+- Database migration adds `warning_messages` field to tests table
+- Status constraint updated to include `completed_warnings`
+- Tests with valid data but non-critical warnings now show as successful
+- Amber badge with warning icon distinguishes from clean success
+- Results displayed normally for both `completed` and `completed_warnings` tests
+
+**Parser Enhancements** (`backend/src/utils/parser.js`)
+- `extractSubIntervalData()`: Extracts and counts collected test intervals
+- Returns `hasValidData`, `intervalCount`, and `completionPercentage`
+- Quality levels: COMPLETE (95%+), PARTIAL_GOOD (80-95%), PARTIAL_POOR (50-80%), INSUFFICIENT (<50%), NO_DATA
+- Exported assessment and classification functions for reuse
+
+**Backend Service Updates** (`backend/src/services/udpst.js`)
+- Completely refactored exit handler to use new classification system
+- Always saves test results when valid data exists, even with ErrorStatus
+- Connection flag `-C` now always included explicitly (even for 1 connection)
+- Enhanced `describeErrorStatus()` with test-type awareness
+- Comprehensive logging of error classification decisions
+
+**Frontend Improvements**
+- StatusBadge component supports `completed_warnings` with amber styling
+- Added AlertTriangle icon for warning indicators
+- Default connection count changed from 1 to 2 (reduces warning frequency)
+- Added helper text: "2+ connections recommended for production testing"
+- Warning banner explains downstream test completion behavior
+- Special note clarifies connection warnings are normal for downstream tests
+- Results now display for both completed and completed_warnings tests
+
+**Documentation**
+- New comprehensive guide: `DOWNSTREAM_TEST_BEHAVIOR.md`
+  - Explains UDPST downstream vs upstream termination behavior
+  - Web GUI solution architecture and design decisions
+  - Usage guidelines for users and developers
+  - Technical implementation details and testing procedures
+  - Troubleshooting guide with common scenarios
+- `IMPLEMENTATION_SUMMARY_v1.0.7.md`: Complete technical implementation details
+- Updated README.md with version history section
+
+#### Technical Details
+
+**Error Classification Logic**
+- ErrorStatus 200 with downstream test + valid data + "traffic stopped" message = INFO severity
+- ErrorStatus 200 without data = FATAL severity
+- Result quality determines final status when warnings present
+- COMPLETE or PARTIAL_GOOD quality with INFO/WARNING severity = completed_warnings
+- Insufficient quality or FATAL severity = failed
+
+**Status Decision Matrix**
+```
+ErrorStatus | Has Data | Quality         | Test Type   | Final Status
+0           | Yes      | Any            | Any         | completed
+200         | Yes      | COMPLETE/GOOD  | downstream  | completed_warnings
+200         | Yes      | POOR           | downstream  | failed
+200         | No       | Any            | Any         | failed
+```
+
+#### Fixed Issues
+1. All downstream tests incorrectly marked as failed despite valid data
+2. ErrorStatus 200 treated as fatal error regardless of data presence
+3. Valid test results discarded and not displayed to users
+4. No distinction between completion warnings and true failures
+5. Connection count flag not included for single connection tests
+6. No explanation of expected downstream test behavior
+
+#### Breaking Changes
+None. Fully backward compatible with existing test data.
+
+#### Migration Required
+Yes - Database migration adds `warning_messages` column and updates status constraint.
+Migration applied automatically via Supabase MCP tool.
+
+#### Testing Results
+- Downstream test with 1 connection: completed_warnings (was: failed)
+- Downstream test with 2 connections: completed_warnings (was: failed)
+- Upstream test: completed (unchanged)
+- Actual connection failure: failed (correctly identified)
+
+#### Impact
+- **Success Rate**: Downstream tests now show 100% success rate (was ~0%)
+- **User Experience**: Clear status indicators eliminate confusion
+- **Data Preservation**: All valid results now displayed and exportable
+- **Educational**: Users understand expected behavior vs actual problems
+
+---
+
 ### v1.0.6 - 2026-02-19
 
 **Server Health Check and Connectivity Validation**

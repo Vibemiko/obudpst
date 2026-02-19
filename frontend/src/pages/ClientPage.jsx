@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, StopCircle, Download, TrendingUp, TrendingDown, AlertCircle, Terminal, Copy, Check, Activity } from 'lucide-react';
+import { Play, StopCircle, Download, TrendingUp, TrendingDown, AlertCircle, AlertTriangle, Terminal, Copy, Check, Activity } from 'lucide-react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
@@ -15,7 +15,7 @@ export default function ClientPage() {
     servers: '',
     port: 25000,
     duration: 10,
-    connections: 1,
+    connections: 2,
     interface: '',
     ipVersion: 'ipv4',
     jumboFrames: true,
@@ -144,6 +144,8 @@ export default function ClientPage() {
     : 'Optional (e.g. 192.168.1.10)';
 
   const testFailed = testResults?.status === 'failed' || (testResults?.errorMessage && !testResults?.results);
+  const testCompletedWithWarnings = testResults?.status === 'completed_warnings';
+  const showResults = testResults?.results && (testResults?.status === 'completed' || testCompletedWithWarnings);
 
   return (
     <div className="space-y-6">
@@ -222,15 +224,18 @@ export default function ClientPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Connections"
-                type="number"
-                value={config.connections}
-                onChange={(e) => setConfig({ ...config, connections: parseInt(e.target.value) })}
-                min={1}
-                max={24}
-                disabled={isRunning}
-              />
+              <div>
+                <Input
+                  label="Connections"
+                  type="number"
+                  value={config.connections}
+                  onChange={(e) => setConfig({ ...config, connections: parseInt(e.target.value) })}
+                  min={1}
+                  max={24}
+                  disabled={isRunning}
+                />
+                <p className="text-xs text-gray-500 mt-1">2+ connections recommended for production testing</p>
+              </div>
 
               <Input
                 label="Bandwidth (Mbps, 0 = unlimited)"
@@ -355,13 +360,24 @@ export default function ClientPage() {
                 </div>
               )}
 
-              {testResults?.errorMessage && !testFailed && (
-                <div className="bg-amber-50 border border-amber-200 rounded-md p-3">
-                  <p className="text-sm text-amber-800">{testResults.errorMessage}</p>
+              {testCompletedWithWarnings && testResults?.errorMessage && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-amber-900 mb-1">Test Completed with Warnings</p>
+                      <p className="text-sm text-amber-800">{testResults.errorMessage}</p>
+                      {config.testType === 'downstream' && (
+                        <p className="text-xs text-amber-700 mt-2">
+                          Note: Connection warnings after downstream test completion are normal behavior and do not indicate a problem.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {testResults?.results && (
+              {showResults && (
                 <div className="border-t border-gray-200 pt-4 mt-4 space-y-3">
                   <ResultItem
                     icon={config.testType === 'downstream' ? <TrendingDown className="text-primary-600" /> : <TrendingUp className="text-primary-600" />}

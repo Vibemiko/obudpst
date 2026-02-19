@@ -838,3 +838,19 @@ $ cmake -D SUPP_INVPDU_ALERT=ON .
 $ cmake -D SUPP_INVPDU_WARN=ON .
 ```
 
+## Web GUI Version History
+
+For the complete version history of the Web GUI, including changes, fixes, and new features, please refer to [RELEASE_NOTE.md](./RELEASE_NOTE.md).
+
+**Current Web GUI Version:** v1.0.7 (2026-02-19)
+
+**Recent Changes:**
+- Fixed downstream test false failure issue
+- Implemented intelligent error classification system
+- Enhanced result quality assessment
+- Added completed_warnings status for tests that succeed with non-critical warnings
+- Improved user feedback with amber badges and explanatory messages
+- Changed default connection count to 2 for better testing experience
+
+See [DOWNSTREAM_TEST_BEHAVIOR.md](./DOWNSTREAM_TEST_BEHAVIOR.md) for detailed information about downstream test completion behavior.
+

@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { access, constants } from 'fs/promises';
 import { existsSync } from 'fs';
 import { config } from '../config.js';
-import { parseUdpstOutput } from '../utils/parser.js';
+import { parseUdpstOutput, assessResultQuality, classifyErrorSeverity } from '../utils/parser.js';
 import * as db from './database.js';
 import { logger } from '../utils/logger.js';
 
@@ -224,9 +224,16 @@ export async function getServerStatus() {
   };
 }
 
-function describeErrorStatus(code, raw) {
+function describeErrorStatus(code, raw, testType, hasValidData) {
   const msg = raw?.ErrorMessage ? raw.ErrorMessage.replace(/^ERROR:\s*/i, '').trim() : null;
   const msg2 = raw?.ErrorMessage2 ? raw.ErrorMessage2.replace(/^WARNING:\s*/i, '').trim() : null;
+  const msg2Lower = (msg2 || '').toLowerCase();
+
+  if (code === 200 && testType === 'downstream' && hasValidData) {
+    if (msg2Lower.includes('incoming traffic has completely stopped')) {
+      return 'Test completed successfully. Note: The connection warning after test completion is normal behavior for downstream tests.';
+    }
+  }
 
   if (msg && msg2) return `${msg}. ${msg2}`;
   if (msg) return msg;
@@ -238,7 +245,9 @@ function describeErrorStatus(code, raw) {
     3: 'Minimum required connections unavailable. The server accepted the setup request but test data never arrived — this is usually a firewall issue. Ensure the backend machine can receive UDP traffic from the server on ephemeral ports 32768-60999. On the server run: sudo ufw allow 32768:60999/udp',
     4: 'Protocol version mismatch between client and server.',
     5: 'Authentication error — check that both client and server use the same authentication key.',
-    200: 'Test failed — minimum required connections unavailable. Verify the server is running, reachable on UDP port 25000, and that ephemeral UDP ports 32768-60999 are not blocked by a firewall between the backend and the server.'
+    200: hasValidData
+      ? 'Test completed with connection warnings but collected valid data.'
+      : 'Test failed — minimum required connections unavailable. Verify the server is running, reachable on UDP port 25000, and that ephemeral UDP ports 32768-60999 are not blocked by a firewall between the backend and the server.'
   };
   return descriptions[code] || `Test completed with error status ${code}. Check server logs for details.`;
 }
@@ -267,7 +276,7 @@ export async function startClientTest(params) {
     args.push('-p', params.port.toString());
   }
 
-  if (params.connections && params.connections > 1) {
+  if (params.connections) {
     args.push('-C', params.connections.toString());
   }
 
@@ -371,17 +380,62 @@ export async function startClientTest(params) {
     if (code === 0 || (code !== 0 && hasOutput)) {
       try {
         const results = parseUdpstOutput(stdoutData);
-
         const errorStatus = results.raw?.ErrorStatus;
+        const errorMessage2 = results.raw?.ErrorMessage2;
+
         if (errorStatus && errorStatus !== 0) {
-          const errorDesc = describeErrorStatus(errorStatus, results.raw);
-          logger.warn('Test completed with ErrorStatus', { testId, errorStatus, exitCode: code, errorDesc });
-          await db.saveTestResults(testId, results);
-          await db.updateTest(testId, {
-            status: 'failed',
-            error_message: errorDesc,
-            completed_at: completedAt
+          const resultQuality = assessResultQuality(results, params.duration);
+          const errorClassification = classifyErrorSeverity(
+            errorStatus,
+            errorMessage2,
+            results,
+            params.testType
+          );
+
+          const errorDesc = describeErrorStatus(
+            errorStatus,
+            results.raw,
+            params.testType,
+            results.hasValidData
+          );
+
+          logger.info('Test completed with ErrorStatus', {
+            testId,
+            errorStatus,
+            exitCode: code,
+            severity: errorClassification.severity,
+            quality: resultQuality.quality,
+            hasValidData: results.hasValidData,
+            intervalCount: results.intervalCount
           });
+
+          await db.saveTestResults(testId, results);
+
+          if (errorClassification.severity === 'INFO' || errorClassification.severity === 'WARNING') {
+            if (resultQuality.quality === 'COMPLETE' || resultQuality.quality === 'PARTIAL_GOOD') {
+              await db.updateTest(testId, {
+                status: 'completed_warnings',
+                error_message: errorDesc,
+                warning_messages: errorClassification.message,
+                completed_at: completedAt
+              });
+              logger.info('Test marked as completed with warnings', { testId, quality: resultQuality.quality });
+            } else {
+              await db.updateTest(testId, {
+                status: 'failed',
+                error_message: errorDesc,
+                completed_at: completedAt
+              });
+              logger.warn('Test marked as failed due to insufficient data', { testId, quality: resultQuality.quality });
+            }
+          } else {
+            await db.updateTest(testId, {
+              status: 'failed',
+              error_message: errorDesc,
+              completed_at: completedAt
+            });
+            logger.warn('Test marked as failed', { testId, severity: errorClassification.severity });
+          }
         } else {
           logger.info('Test completed successfully', { testId, throughput: results.throughput });
           await db.saveTestResults(testId, results);
@@ -392,7 +446,7 @@ export async function startClientTest(params) {
         }
       } catch (parseError) {
         const errorMsg = stderrData.trim() || stdoutData.trim() || `Process exited with code ${code}`;
-        logger.warn('Test failed', { testId, exitCode: code, error: errorMsg.substring(0, 200) });
+        logger.warn('Test failed - parse error', { testId, exitCode: code, error: parseError.message, errorMsg: errorMsg.substring(0, 200) });
         await db.updateTest(testId, {
           status: 'failed',
           error_message: errorMsg,
@@ -401,7 +455,7 @@ export async function startClientTest(params) {
       }
     } else {
       const errorMsg = stderrData.trim() || `Process exited with code ${code}`;
-      logger.warn('Test failed', { testId, exitCode: code, error: errorMsg.substring(0, 200) });
+      logger.warn('Test failed - no output', { testId, exitCode: code, error: errorMsg.substring(0, 200) });
       await db.updateTest(testId, {
         status: 'failed',
         error_message: errorMsg,

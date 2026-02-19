@@ -226,7 +226,7 @@ export default function HistoryPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-mono text-gray-900">{test.test_id}</span>
-                      <StatusBadge status={test.status} />
+                      <StatusBadge status={test.status} showIcon={true} />
                     </div>
                     <div className="flex items-center gap-4 mt-1">
                       <span className="text-xs text-gray-500 capitalize">{test.test_type}</span>
@@ -263,7 +263,7 @@ export default function HistoryPage() {
               <div>
                 <span className="text-xs font-medium text-gray-500">Status</span>
                 <div className="mt-1">
-                  <StatusBadge status={selectedTest.status} />
+                  <StatusBadge status={selectedTest.status} showIcon={true} />
                 </div>
               </div>
 
