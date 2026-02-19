@@ -43,12 +43,50 @@ export async function checkBinary() {
   }
 }
 
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function waitForServerReady(proc, timeoutMs = 2000) {
+  return new Promise((resolve, reject) => {
+    let exited = false;
+
+    const exitHandler = (code) => {
+      exited = true;
+      reject(new Error(`Server process exited immediately with code ${code}`));
+    };
+
+    proc.once('exit', exitHandler);
+
+    setTimeout(() => {
+      proc.removeListener('exit', exitHandler);
+      if (!exited) {
+        resolve();
+      }
+    }, timeoutMs);
+  });
+}
+
 export async function startServer(params) {
   ensureBinaryExists();
 
   const existingServer = await db.getActiveServerInstance(config.machineId);
-  if (existingServer && runningProcesses.has(existingServer.process_id)) {
-    throw new Error('Server already running');
+  if (existingServer) {
+    if (runningProcesses.has(existingServer.process_id)) {
+      throw new Error('Server already running');
+    }
+    if (existingServer.pid && isProcessAlive(existingServer.pid)) {
+      throw new Error('Server already running');
+    }
+    await db.updateServerInstance(existingServer.process_id, {
+      status: 'stopped',
+      stopped_at: new Date().toISOString()
+    });
   }
 
   const args = [];
@@ -98,16 +136,8 @@ export async function startServer(params) {
   if (params.daemon) {
     proc.unref();
   } else {
-    let stdoutData = '';
-    let stderrData = '';
-
-    proc.stdout?.on('data', (data) => {
-      stdoutData += data.toString();
-    });
-
-    proc.stderr?.on('data', (data) => {
-      stderrData += data.toString();
-    });
+    proc.stdout?.on('data', () => {});
+    proc.stderr?.on('data', () => {});
 
     proc.on('exit', async (code) => {
       runningProcesses.delete(processId);
@@ -116,6 +146,17 @@ export async function startServer(params) {
         stopped_at: new Date().toISOString()
       });
     });
+
+    try {
+      await waitForServerReady(proc);
+    } catch (err) {
+      runningProcesses.delete(processId);
+      await db.updateServerInstance(processId, {
+        status: 'stopped',
+        stopped_at: new Date().toISOString()
+      });
+      throw err;
+    }
   }
 
   return {
@@ -175,6 +216,17 @@ export async function getServerStatus() {
     config: serverInstance.config,
     machineId: config.machineId
   };
+}
+
+function describeErrorStatus(code) {
+  const descriptions = {
+    1: 'Test inconclusive — server could not determine IP-layer capacity. Check server stability and network path.',
+    2: 'Test inconclusive — server could not determine IP-layer capacity. Ensure the server is running and stable for the full test duration.',
+    3: 'Test failed — insufficient connections available. Check that the server is accepting connections on the configured port.',
+    4: 'Test failed — protocol version mismatch between client and server.',
+    5: 'Test failed — authentication error. Check that both client and server use the same authentication key.'
+  };
+  return descriptions[code] || `Test completed with error status ${code}. Check server logs for details.`;
 }
 
 export async function startClientTest(params) {
@@ -293,27 +345,41 @@ export async function startClientTest(params) {
       return;
     }
 
-    if (code === 0) {
+    const hasOutput = stdoutData.trim().length > 0;
+
+    if (code === 0 || (code !== 0 && hasOutput)) {
       try {
         const results = parseUdpstOutput(stdoutData);
-        logger.info('Test completed successfully', { testId, throughput: results.throughput });
 
-        await db.saveTestResults(testId, results);
-
-        await db.updateTest(testId, {
-          status: 'completed',
-          completed_at: completedAt
-        });
-      } catch (error) {
-        logger.error('Failed to parse test results', { testId, error: error.message });
+        const errorStatus = results.raw?.ErrorStatus;
+        if (errorStatus && errorStatus !== 0) {
+          const errorDesc = describeErrorStatus(errorStatus);
+          logger.warn('Test completed with ErrorStatus', { testId, errorStatus, exitCode: code });
+          await db.saveTestResults(testId, results);
+          await db.updateTest(testId, {
+            status: 'completed',
+            error_message: errorDesc,
+            completed_at: completedAt
+          });
+        } else {
+          logger.info('Test completed successfully', { testId, throughput: results.throughput });
+          await db.saveTestResults(testId, results);
+          await db.updateTest(testId, {
+            status: 'completed',
+            completed_at: completedAt
+          });
+        }
+      } catch (parseError) {
+        const errorMsg = stderrData.trim() || stdoutData.trim() || `Process exited with code ${code}`;
+        logger.warn('Test failed', { testId, exitCode: code, error: errorMsg.substring(0, 200) });
         await db.updateTest(testId, {
           status: 'failed',
-          error_message: `Failed to parse results: ${error.message}`,
+          error_message: errorMsg,
           completed_at: completedAt
         });
       }
     } else {
-      const errorMsg = stderrData.trim() || stdoutData.trim() || `Process exited with code ${code}`;
+      const errorMsg = stderrData.trim() || `Process exited with code ${code}`;
       logger.warn('Test failed', { testId, exitCode: code, error: errorMsg.substring(0, 200) });
       await db.updateTest(testId, {
         status: 'failed',

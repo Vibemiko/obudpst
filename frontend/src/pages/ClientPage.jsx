@@ -17,7 +17,7 @@ export default function ClientPage() {
     interface: '',
     ipVersion: 'ipv4',
     jumboFrames: true,
-    bandwidth: 1000,
+    bandwidth: 0,
     verbose: false
   });
 
@@ -40,9 +40,9 @@ export default function ClientPage() {
       if (status.status !== 'running') {
         const results = await api.test.getResults(currentTest.testId);
         setTestResults(results);
-        setCurrentTest({ ...currentTest, status: status.status });
+        setCurrentTest(prev => ({ ...prev, status: status.status }));
       } else {
-        setCurrentTest({ ...currentTest, ...status });
+        setCurrentTest(prev => ({ ...prev, ...status }));
       }
     } catch (err) {
       console.error('Failed to poll test status:', err);
@@ -170,11 +170,11 @@ export default function ClientPage() {
               />
 
               <Input
-                label="Bandwidth (Mbps)"
+                label="Bandwidth (Mbps, 0 = unlimited)"
                 type="number"
                 value={config.bandwidth}
                 onChange={(e) => setConfig({ ...config, bandwidth: parseInt(e.target.value) })}
-                min={1}
+                min={0}
                 disabled={currentTest?.status === 'running'}
               />
             </div>
@@ -265,6 +265,12 @@ export default function ClientPage() {
                     />
                   </div>
                 </>
+              )}
+
+              {testResults?.errorMessage && (
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-3">
+                  <p className="text-sm text-amber-800">{testResults.errorMessage}</p>
+                </div>
               )}
 
               {testResults?.results && (
