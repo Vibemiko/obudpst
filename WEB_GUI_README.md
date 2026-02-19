@@ -23,6 +23,7 @@ This project provides a complete web-based control plane for OB-UDPST, enabling:
 - **Web GUI**: Modern React-based interface for configuring and executing tests
 - **REST API**: Node.js backend for orchestrating OB-UDPST binary execution
 - **Database**: Supabase (PostgreSQL) for storing test configurations and results
+- **Server Health Check**: Pre-flight validation of server connectivity and port accessibility
 - **Real-time Monitoring**: Live test status updates and progress tracking
 - **Results Visualization**: Charts and metrics display with export capabilities
 - **Test History**: Complete audit trail of all executed tests

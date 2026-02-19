@@ -1,6 +1,7 @@
 import express from 'express';
 import * as udpst from '../services/udpst.js';
 import * as db from '../services/database.js';
+import * as healthCheck from '../services/health-check.js';
 import { logger } from '../utils/logger.js';
 
 export const router = express.Router();
@@ -267,6 +268,70 @@ router.delete('/test', async (req, res) => {
     });
   } catch (error) {
     logger.error('Failed to delete all tests', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+router.post('/health/check-server', async (req, res) => {
+  try {
+    const { host, port } = req.body;
+
+    if (!host) {
+      return res.status(400).json({
+        success: false,
+        error: 'Host parameter is required',
+        code: 'INVALID_PARAMETERS'
+      });
+    }
+
+    logger.info('Checking server health', { host, port: port || 25000 });
+    const result = await healthCheck.checkServerReachability(host, port || 25000);
+    logger.info('Server health check completed', { host, reachable: result.reachable });
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    logger.error('Health check failed', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+router.post('/health/check-servers', async (req, res) => {
+  try {
+    const { servers, port } = req.body;
+
+    if (!servers || !Array.isArray(servers) || servers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Servers array is required',
+        code: 'INVALID_PARAMETERS'
+      });
+    }
+
+    logger.info('Checking multiple servers', { serverCount: servers.length, port: port || 25000 });
+    const result = await healthCheck.checkMultipleServers(servers, port || 25000);
+    logger.info('Multiple server health check completed', {
+      total: result.totalServers,
+      reachable: result.reachableServers,
+      unreachable: result.unreachableServers
+    });
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    logger.error('Health check failed', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message,

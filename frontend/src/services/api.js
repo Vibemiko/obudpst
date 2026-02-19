@@ -72,4 +72,16 @@ export const api = {
   binary: {
     getInfo: () => request('/binary/info'),
   },
+
+  health: {
+    checkServer: (host, port = 25000) => request('/health/check-server', {
+      method: 'POST',
+      body: JSON.stringify({ host, port }),
+    }),
+
+    checkServers: (servers, port = 25000) => request('/health/check-servers', {
+      method: 'POST',
+      body: JSON.stringify({ servers, port }),
+    }),
+  },
 };

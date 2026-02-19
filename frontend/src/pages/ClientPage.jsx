@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Play, StopCircle, Download, TrendingUp, TrendingDown, AlertCircle, Terminal, Copy, Check } from 'lucide-react';
+import { Play, StopCircle, Download, TrendingUp, TrendingDown, AlertCircle, Terminal, Copy, Check, Activity } from 'lucide-react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import Select from '../components/Select';
 import StatusBadge from '../components/StatusBadge';
+import ServerHealthCheck from '../components/ServerHealthCheck';
 import { api } from '../services/api';
 import { validateIPList, validateSingleIP } from '../utils/validation';
 
@@ -29,6 +30,7 @@ export default function ClientPage() {
 
   const [serversError, setServersError] = useState(null);
   const [interfaceError, setInterfaceError] = useState(null);
+  const [healthCheckResult, setHealthCheckResult] = useState(null);
 
   useEffect(() => {
     if (currentTest?.testId && currentTest?.status === 'running') {
@@ -64,6 +66,7 @@ export default function ClientPage() {
     const val = e.target.value;
     setConfig({ ...config, servers: val });
     setServersError(validateIPList(val, config.ipVersion));
+    setHealthCheckResult(null);
   }
 
   function handleInterfaceChange(e) {
@@ -287,6 +290,14 @@ export default function ClientPage() {
                 </Button>
               )}
             </div>
+
+            {!isRunning && config.servers.trim() && (
+              <ServerHealthCheck
+                servers={config.servers}
+                port={config.port}
+                onCheckComplete={setHealthCheckResult}
+              />
+            )}
           </div>
         </Card>
 
@@ -319,11 +330,28 @@ export default function ClientPage() {
               )}
 
               {testFailed && (
-                <div className="bg-red-50 border border-red-200 rounded-md p-3 flex items-start gap-2">
-                  <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-sm text-red-700">
-                    {testResults.errorMessage || 'Test failed. Check server connectivity and configuration.'}
-                  </p>
+                <div className="bg-red-50 border border-red-200 rounded-md p-4">
+                  <div className="flex items-start gap-2 mb-2">
+                    <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-red-900 mb-1">Test Failed</p>
+                      <p className="text-sm text-red-800">
+                        {testResults.errorMessage || 'Test failed. Check server connectivity and configuration.'}
+                      </p>
+                    </div>
+                  </div>
+                  {testResults.errorMessage && testResults.errorMessage.includes('unavailable') && (
+                    <div className="mt-3 pt-3 border-t border-red-200">
+                      <p className="text-xs font-semibold text-red-800 mb-2">Troubleshooting Steps:</p>
+                      <ul className="text-xs text-red-700 space-y-1 ml-4 list-disc">
+                        <li>Verify the UDPST server is running on the target machine</li>
+                        <li>Check that port {config.port} is accessible (not blocked by firewall)</li>
+                        <li>Ensure UDP ports 32768-60999 are not blocked between machines</li>
+                        <li>Try the Server Health Check above to diagnose connectivity issues</li>
+                        <li>Verify network connectivity with: ping {config.servers.split(',')[0]?.trim()}</li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -2,6 +2,84 @@
 
 ## Version Log
 
+### v1.0.6 - 2026-02-19
+
+**Server Health Check and Connectivity Validation**
+
+#### Overview
+This release adds comprehensive pre-flight server health checks to diagnose connectivity issues before running tests. The new health check system validates both network reachability and control port accessibility, providing actionable recommendations when issues are detected.
+
+#### Changes
+
+**Server Health Check API**
+- Added `POST /api/health/check-server` endpoint for single server validation
+- Added `POST /api/health/check-servers` endpoint for batch validation
+- Health checks perform two critical tests:
+  - Network Ping: ICMP connectivity test (2-second timeout)
+  - Control Port: TCP connection test to port 25000 (3-second timeout)
+- Returns detailed results with pass/fail status for each check
+- Provides actionable recommendations when connectivity issues are detected
+
+**Frontend Health Check Component**
+- Added `ServerHealthCheck` component to Client Test page
+- Interactive "Check Servers" button to validate connectivity on-demand
+- Visual indicators (green/red) show server reachability status
+- Detailed breakdown of each validation check with pass/fail indicators
+- Contextual troubleshooting recommendations displayed when servers are unreachable
+- Component automatically resets when server addresses are changed
+
+**Enhanced Error Messages**
+- Improved error display for failed tests with expanded troubleshooting section
+- Tests that fail with "unavailable" errors now show 5-step troubleshooting checklist:
+  - Verify server is running
+  - Check port accessibility
+  - Ensure UDP ports are not blocked
+  - Use health check to diagnose issues
+  - Verify network connectivity with ping
+- Error messages include specific port numbers and server addresses for easier debugging
+
+**Button Component Enhancement**
+- Added size prop to Button component (`sm`, `md`, `lg`)
+- Health check uses small buttons for better visual hierarchy
+
+**Documentation**
+- Added comprehensive `SERVER_HEALTH_CHECK_GUIDE.md` covering:
+  - What the health check validates
+  - How to use it in GUI and via API
+  - Understanding and interpreting results
+  - Common issues and solutions
+  - Firewall configuration examples for various Linux distributions
+  - Best practices for troubleshooting
+- Updated `WEB_GUI_README.md` to mention Server Health Check feature
+
+#### Technical Implementation
+
+**Backend Service** (`backend/src/services/health-check.js`)
+- `checkServerReachability(host, port)`: Validates single server
+- `checkMultipleServers(servers, port)`: Batch validation
+- `pingHost(host)`: ICMP ping test with platform detection
+- `checkTCPPort(host, port)`: TCP connection test
+- `generateRecommendation(result)`: Context-aware troubleshooting advice
+
+**API Integration** (`frontend/src/services/api.js`)
+- `api.health.checkServer(host, port)`: Single server check
+- `api.health.checkServers(servers, port)`: Multiple server check
+
+#### Use Cases
+
+1. **Pre-Test Validation**: Check server connectivity before running expensive tests
+2. **Troubleshooting**: Diagnose why tests are failing
+3. **Network Configuration**: Verify firewall rules and routing
+4. **Documentation**: Confirm server setup is correct
+
+#### Fixed Issues
+1. Tests failing silently due to unreachable servers
+2. No way to diagnose connectivity issues before test execution
+3. Generic error messages without actionable guidance
+4. Users wasting time running tests against offline/misconfigured servers
+
+---
+
 ### v1.0.5 - 2026-02-19
 
 **Diagnostics Panel, Error Clarity, and Command Visibility**
