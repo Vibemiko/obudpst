@@ -2,6 +2,41 @@
 
 ## Version Log
 
+### v1.0.10 - 2026-02-19
+
+**Critical Fixes: Backend Database Connection, Health Check Probe, and Database Schema**
+
+#### Overview
+This release fixes four critical issues that prevented the Web GUI from functioning correctly. Tests initiated from the GUI never produced results, and the server health check always reported servers as unreachable -- even when the UDPST server was confirmed running and reachable via CLI.
+
+#### Root Causes Identified and Fixed
+
+1. **Backend Supabase Connection Failure** (`.env`)
+   - The `.env` file only contained `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (with VITE_ prefix for the frontend). The backend `config.js` reads `SUPABASE_URL` and `SUPABASE_ANON_KEY` (without VITE_ prefix), resulting in `undefined` credentials. Every database operation (createTest, updateTest, saveTestResults) failed silently.
+   - **Fix**: Added `SUPABASE_URL` and `SUPABASE_ANON_KEY` entries to `.env`.
+
+2. **Health Check Binary Probe Using Invalid Parameter** (`backend/src/services/health-check.js`)
+   - `probeWithBinary()` passed `-t 1` to the UDPST binary, but the binary requires a minimum of 5 seconds (`MIN_TESTINT_TIME=5`). The binary rejected the parameter and exited immediately with no JSON output. The fallback `probeWithDgram()` sends a raw UDP packet that UDPST does not recognize, so it always timed out. Result: `controlPortOpen: false` even when the server was running.
+   - **Fix**: Changed to `-t 5`, increased `CONTROL_PORT_TIMEOUT` from 4s to 8s to allow the probe to complete, added early resolution on first JSON output detection.
+
+3. **Database Status Constraint Missing `completed_partial`** (Supabase migration)
+   - The `tests.status` CHECK constraint allowed: pending, running, completed, completed_warnings, failed, stopped. The code in `udpst.js` sets `status: 'completed_partial'` for tests with partial data, violating the constraint and causing the update to fail.
+   - **Fix**: Applied migration adding `completed_partial` to the constraint.
+
+4. **Missing RLS Policies on `test_results`** (Supabase migration)
+   - The `test_results` table only had SELECT and INSERT RLS policies. The `deleteTest()` and `deleteAllTests()` functions need DELETE access, and result updates need UPDATE access.
+   - **Fix**: Applied migration adding DELETE and UPDATE policies.
+
+#### Files Changed
+- `.env` -- Added `SUPABASE_URL` and `SUPABASE_ANON_KEY` (non-VITE_ prefixed)
+- `backend/src/services/health-check.js` -- Changed `-t 1` to `-t 5`, increased timeout to 8s
+- Supabase migration `fix_completed_partial_status_and_rls_policies`
+
+#### Breaking Changes
+- None. All fixes are backward-compatible.
+
+---
+
 ### v1.0.9 - 2026-02-19
 
 **Corrected IPv4 Early Termination Analysis, Upstream Issue Integration, and Improved Diagnostics**

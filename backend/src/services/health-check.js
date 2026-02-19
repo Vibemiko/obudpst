@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 import { logger } from '../utils/logger.js';
 import { config } from '../config.js';
 
-const CONTROL_PORT_TIMEOUT = 4000;
+const CONTROL_PORT_TIMEOUT = 8000;
 const PING_TIMEOUT = 2000;
 
 export async function checkServerReachability(host, port = 25000) {
@@ -135,7 +135,7 @@ function probeWithBinary(host, port) {
       isIPv6 ? '-6' : '-4',
       '-d',
       '-p', port.toString(),
-      '-t', '1',
+      '-t', '5',
       '-f', 'json',
       host
     ];
@@ -146,36 +146,68 @@ function probeWithBinary(host, port) {
     });
 
     let stdout = '';
+    let resolved = false;
 
     proc.stdout?.on('data', (data) => {
       stdout += data.toString();
-    });
-
-    const timeoutId = setTimeout(() => {
-      proc.kill();
-      resolve(null);
-    }, CONTROL_PORT_TIMEOUT);
-
-    proc.on('exit', (code) => {
-      clearTimeout(timeoutId);
-
-      if (stdout.includes('"ErrorStatus"') || stdout.includes('"IncrementalResult"')) {
+      if (!resolved && (stdout.includes('"ErrorStatus"') || stdout.includes('"IncrementalResult"'))) {
+        resolved = true;
+        proc.kill();
         const errorMatch = stdout.match(/"ErrorStatus"\s*:\s*(\d+)/);
         if (errorMatch) {
           const errorStatus = parseInt(errorMatch[1]);
           resolve(errorStatus !== 4 && errorStatus !== 5);
-          return;
+        } else {
+          resolve(true);
         }
-        resolve(true);
-        return;
       }
+    });
 
-      resolve(code === 0);
+    proc.stderr?.on('data', (data) => {
+      const text = data.toString();
+      if (!resolved && (text.includes('Setup response') || text.includes('Connection created'))) {
+        resolved = true;
+        proc.kill();
+        resolve(true);
+      }
+    });
+
+    const timeoutId = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        proc.kill();
+        if (stdout.includes('"ErrorStatus"') || stdout.includes('"IncrementalResult"')) {
+          resolve(true);
+        } else {
+          resolve(null);
+        }
+      }
+    }, CONTROL_PORT_TIMEOUT);
+
+    proc.on('exit', (code) => {
+      clearTimeout(timeoutId);
+      if (!resolved) {
+        resolved = true;
+        if (stdout.includes('"ErrorStatus"') || stdout.includes('"IncrementalResult"')) {
+          const errorMatch = stdout.match(/"ErrorStatus"\s*:\s*(\d+)/);
+          if (errorMatch) {
+            const errorStatus = parseInt(errorMatch[1]);
+            resolve(errorStatus !== 4 && errorStatus !== 5);
+          } else {
+            resolve(true);
+          }
+        } else {
+          resolve(code === 0);
+        }
+      }
     });
 
     proc.on('error', () => {
       clearTimeout(timeoutId);
-      resolve(null);
+      if (!resolved) {
+        resolved = true;
+        resolve(null);
+      }
     });
   });
 }

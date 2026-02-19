@@ -857,9 +857,16 @@ $ cmake -D SUPP_INVPDU_WARN=ON .
 
 For the complete version history of the Web GUI, including changes, fixes, and new features, please refer to [RELEASE_NOTE.md](./RELEASE_NOTE.md).
 
-**Current Web GUI Version:** v1.0.9 (2026-02-19)
+**Current Web GUI Version:** v1.0.10 (2026-02-19)
 
-**Recent Changes (v1.0.9):**
+**Recent Changes (v1.0.10):**
+- Fixed backend Supabase connection: env vars were missing non-VITE_ prefixed credentials, causing all database operations to fail silently
+- Fixed health check probe: binary was called with `-t 1` (below UDPST minimum of 5s), causing every probe to fail; now uses `-t 5` with 8s timeout
+- Fixed database constraint: `completed_partial` status was used in code but missing from the `tests.status` CHECK constraint
+- Added missing RLS policies: DELETE and UPDATE on `test_results` table
+- These fixes resolve the root causes of tests not producing results in the GUI and health checks always reporting servers as unreachable
+
+**Previous Changes (v1.0.9):**
 - Corrected "6-second bug" analysis: identified as IPv4 early termination caused by TIMEOUT_NOTRAFFIC watchdog (3s), not definitively a binary bug
 - Revised error messages to present multiple root causes (firewall/NAT/conntrack, binary defect, cross-platform struct padding, version mismatch)
 - Added `expectedDuration` from JSON output to parser results for accurate early termination detection
