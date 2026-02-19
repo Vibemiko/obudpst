@@ -340,7 +340,7 @@ function describeErrorStatus(code, raw, testType, hasValidData, intervalCount, e
   const msg2Lower = (msg2 || '').toLowerCase();
   const isIPv6 = ipVersion === 'ipv6';
 
-  const is6SecondBug = !isIPv6 && intervalCount >= 5 && intervalCount <= 7 && expectedDuration > 10;
+  const isEarlyTermination = !isIPv6 && intervalCount >= 5 && intervalCount <= 7 && expectedDuration > 7;
 
   if (code === 200 && testType === 'downstream' && hasValidData) {
     if (msg2Lower.includes('incoming traffic has completely stopped')) {
@@ -348,8 +348,8 @@ function describeErrorStatus(code, raw, testType, hasValidData, intervalCount, e
     }
   }
 
-  if (code === 200 && is6SecondBug) {
-    return `Test stopped after ${intervalCount} seconds despite requesting ${expectedDuration} seconds. This is a known bug in certain UDPST binary builds affecting IPv4 mode. Solution: Use IPv6 mode (which does not have this bug) or obtain a stable UDPST binary. The collected data from the ${intervalCount} successful intervals is still valid and shown below.`;
+  if (code === 200 && isEarlyTermination) {
+    return `Test stopped after ${intervalCount} seconds despite requesting ${expectedDuration} seconds. Traffic stopped flowing and the UDPST no-traffic watchdog (TIMEOUT_NOTRAFFIC=3s) terminated the connection. This pattern is IPv4-specific — possible causes include IPv4 firewall/NAT/conntrack dropping UDP return traffic, a binary build issue, or cross-platform struct padding (upstream issue #24). Try IPv6 mode which does not exhibit this behavior. The collected data from the ${intervalCount} successful intervals is still valid and shown below.`;
   }
 
   if (msg && msg2) return `${msg}. ${msg2}`;
@@ -357,15 +357,15 @@ function describeErrorStatus(code, raw, testType, hasValidData, intervalCount, e
   if (msg2) return msg2;
 
   const descriptions = {
-    1: 'Test inconclusive — server could not determine IP-layer capacity.',
+    1: 'Test inconclusive — server could not determine IP-layer capacity. Also check that client and server binary versions are compatible (see upstream issue #14).',
     2: 'Test inconclusive — server capacity undetermined. Ensure server is stable for the full test duration.',
-    3: is6SecondBug
-      ? `Test collected ${intervalCount} seconds of valid data but then stopped unexpectedly. This is a known UDPST binary bug affecting IPv4 mode. Solution: Use IPv6 mode or obtain a stable UDPST binary release.`
+    3: isEarlyTermination
+      ? `Test collected ${intervalCount} seconds of valid data but traffic then stopped, triggering the UDPST no-traffic watchdog (3s timeout). This IPv4-specific pattern may be caused by firewall/NAT/conntrack issues, a binary defect, or cross-platform struct padding mismatch. Try IPv6 mode or verify IPv4 UDP return path (ephemeral ports 32768-60999).`
       : 'Minimum required connections unavailable. The server accepted the setup request but test data never arrived — this is usually a firewall issue. Ensure the backend machine can receive UDP traffic from the server on ephemeral ports 32768-60999. On the server run: sudo ufw allow 32768:60999/udp',
-    4: 'Protocol version mismatch between client and server.',
+    4: 'Protocol version mismatch between client and server. Ensure both client and server use compatible UDPST versions (see upstream issue #14).',
     5: 'Authentication error — check that both client and server use the same authentication key.',
-    200: is6SecondBug
-      ? `Test collected ${intervalCount} seconds of data but stopped early (requested ${expectedDuration} seconds). This is a known bug in IPv4 mode of certain UDPST binary builds. The collected data is valid. Try IPv6 mode for full test duration.`
+    200: isEarlyTermination
+      ? `Test collected ${intervalCount} seconds of data but stopped early (requested ${expectedDuration} seconds). The UDPST no-traffic watchdog terminated the connection after detecting silence. This is IPv4-specific — check firewall/NAT/conntrack on the IPv4 path, or try IPv6 mode. The collected data is valid.`
       : hasValidData
       ? 'Test completed with connection warnings but collected valid data.'
       : 'Test failed — minimum required connections unavailable. Verify the server is running, reachable on UDP port 25000, and that ephemeral UDP ports 32768-60999 are not blocked by a firewall between the backend and the server.'
@@ -566,7 +566,7 @@ export async function startClientTest(params) {
               await db.updateTest(testId, {
                 status: 'completed_partial',
                 error_message: errorDesc,
-                warning_messages: `Test collected ${results.intervalCount} intervals of data before connection failure. This may indicate a known UDPST binary bug causing early termination.`,
+                warning_messages: `Test collected ${results.intervalCount} intervals of data before the UDPST no-traffic watchdog terminated the connection. This IPv4 early termination pattern may be caused by firewall/NAT/conntrack issues or a binary defect. Try IPv6 mode.`,
                 completed_at: completedAt
               });
               logger.warn('Test marked as partial success despite connection failure', { testId, intervalCount: results.intervalCount });

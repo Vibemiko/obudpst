@@ -1,190 +1,205 @@
-# UDPST Binary Troubleshooting Guide
+# UDPST Binary & IPv4 Early Termination Troubleshooting Guide
 
-## Critical Issue: 6-Second Test Failure Pattern
+## IPv4 Early Termination Pattern (~6 Seconds)
 
 ### Problem Description
 
-Tests consistently fail after exactly **6 seconds** (6 intervals) regardless of the requested test duration. This occurs with both CLI and Web GUI interfaces, indicating a **bug in the UDPST binary itself**, not the Web GUI.
+Tests consistently terminate after approximately **5-7 seconds** (5-7 intervals) regardless of the requested test duration. This pattern occurs **only on IPv4** — IPv6 tests complete all requested intervals successfully. The behavior is identical in both CLI (`./udpst`) and the Web GUI.
 
 ### Symptoms
 
-- Test requested for 100 seconds but stops after 6 seconds
+- Test requested for 100 seconds but stops after ~6 seconds
 - Both upstream and downstream tests exhibit identical behavior
 - Error status 200 (or 3): "Minimum required connections unavailable"
 - Valid data collected for intervals 1-6, then connection terminates
 - Identical behavior in CLI (direct `./udpst` execution) and Web GUI
-- Network configuration is correct (firewall, buffers, conntrack all verified)
+- IPv6 tests to the same server complete normally
+- Error message: "Incoming traffic has completely stopped"
 
-### Root Cause
+### How UDPST Connection Termination Works
 
-The UDPST binary has a **future build date**:
-```
-Built: Feb 18 2026 22:58:16
-```
+The UDPST binary uses a **no-traffic watchdog timer** defined in `udpst.h`:
 
-This indicates:
-1. System clock was incorrect during compilation
-2. Development or test build with bugs
-3. Untested pre-release version
-
-The binary contains a bug that causes it to terminate connections after 6 seconds regardless of the `-t` (duration) parameter.
-
-### Evidence
-
-**CLI Test (identical to GUI behavior):**
-```bash
-./udpst -d -p 25000 -t 100 10.50.3.1
-# Output shows only 6 intervals collected despite requesting 100 seconds
+```c
+#define WARNING_NOTRAFFIC 1    // Receive traffic stopped warning threshold (sec)
+#define TIMEOUT_NOTRAFFIC (WARNING_NOTRAFFIC + 2)  // = 3 seconds
 ```
 
-**Network Configuration (verified correct):**
-```bash
-# UDP conntrack timeouts - CORRECT
-net.netfilter.nf_conntrack_udp_timeout = 30
-net.netfilter.nf_conntrack_udp_timeout_stream = 120
+When the binary receives no PDU (Protocol Data Unit) for **3 consecutive seconds**, it considers the connection dead and terminates. This watchdog is **reset on every received PDU** (see `udpst_data.c` line 730-732). This is normal protocol behavior, not a bug in itself.
 
-# Ephemeral ports - CORRECT
-net.ipv4.ip_local_port_range = 32768 60999
+The ~6 second termination pattern means:
+1. **Seconds 1-3**: Data flows normally, ~3 intervals collected
+2. **Seconds 3-6**: Traffic stops arriving on one side (the root cause)
+3. **Second 6**: The 3-second `TIMEOUT_NOTRAFFIC` watchdog expires, connection terminated
+4. **Result**: 5-7 valid intervals collected, then ErrorStatus 200 or 3
 
-# Socket buffers - CORRECT (128MB > 2MB requirement)
-net.core.rmem_max = 134217728
-net.core.wmem_max = 134217728
+### Understanding the Root Cause
 
-# Firewall rules - CORRECT
-ufw allow 25000/udp
-ufw allow 32768:60999/udp
-```
+The key question is: **Why does UDP return traffic stop flowing at ~3-6 seconds on IPv4 but not IPv6?**
 
-**Test Output Pattern:**
-- Intervals 1-6: Valid data collected (throughput, latency, jitter all measured)
-- Interval 7+: Never occur, connection drops
-- Error appears: "Incoming traffic has completely stopped"
+There are multiple possible causes:
 
-### Why This is NOT a Network Issue
-
-1. **Bidirectional Communication Works**: The test establishes connections successfully and transmits data in both directions for 6 full seconds
-2. **Identical CLI Behavior**: Running `./udpst` directly (bypassing Web GUI) shows the same 6-second limit
-3. **Network Config Verified**: All sysctl parameters, firewall rules, and conntrack settings are correct
-4. **Ping and Port Check Pass**: Network connectivity is confirmed
-5. **Consistent Interval Count**: Always exactly 6 intervals, never more, never less
-
-If this were a network issue, we would see:
-- Variable failure times (not always exactly 6 seconds)
-- Firewall blocks (but ports are open)
-- No data collected (but we get 6 successful intervals)
-- Different behavior between CLI and GUI (but they're identical)
-
-### Understanding UDPST Bidirectional Nature
+#### Cause 1: IPv4 Firewall / NAT / Conntrack Issues
 
 Even "downstream" tests require bidirectional UDP:
 
-1. **Setup Phase**: Client → Server (control messages on port 25000)
-2. **Test Phase**: Server → Client (data on ephemeral ports 32768-60999)
-3. **Acknowledgment Phase**: Client → Server (status/PDV feedback on ephemeral ports)
+1. **Setup Phase**: Client -> Server (control messages on port 25000)
+2. **Test Phase**: Server -> Client (data on ephemeral ports 32768-60999)
+3. **Acknowledgment Phase**: Client -> Server (status/PDV feedback on ephemeral ports)
 
-The binary's bug causes it to incorrectly detect connection loss after 6 acknowledgment cycles, despite the connection being healthy.
+IPv4-specific networking layers (NAT, conntrack state tracking, iptables/nftables rules) can silently drop the return path UDP traffic. IPv6 bypasses many of these layers, which explains why it works.
+
+**Diagnostic steps:**
+```bash
+# Check conntrack table during a test
+conntrack -L -p udp | grep <server_ip>
+
+# Check for dropped packets
+iptables -L -v -n | grep DROP
+nft list ruleset | grep drop
+
+# Check NAT rules
+iptables -t nat -L -v -n
+
+# Verify conntrack timeouts are adequate
+sysctl net.netfilter.nf_conntrack_udp_timeout
+sysctl net.netfilter.nf_conntrack_udp_timeout_stream
+# Should be at least 30 and 120 respectively
+
+# Check if conntrack table is full (causes silent drops)
+sysctl net.netfilter.nf_conntrack_count
+sysctl net.netfilter.nf_conntrack_max
+```
+
+#### Cause 2: Binary Build Issue
+
+A defective or development binary may have IPv4-specific code path bugs. Check:
+```bash
+./udpst -V
+```
+
+**Warning signs:**
+- Build date in the future (system clock was wrong during compilation)
+- Missing optimizations (SendMMsg+GSO, RecvMMsg+Trunc)
+- Protocol version < 10
+
+#### Cause 3: Cross-Platform Struct Padding (Upstream Issue #24)
+
+If client and server binaries are compiled on different platforms (e.g., ARM vs x86, or different compilers), the `subIntStats` struct may have inconsistent memory layouts due to compiler-specific padding. The `sizeof(struct statusHdr)` can vary, causing received data size validation to fail.
+
+See: https://github.com/BroadbandForum/obudpst/issues/24
+
+**Fix:** Ensure both client and server binaries are compiled on the same platform/architecture, or apply `#pragma pack` as suggested in the upstream issue.
+
+#### Cause 4: Client/Server Version Mismatch (Upstream Issue #14)
+
+UDPST client v7.4.0 cannot communicate with server v8.1.0, producing "Timeout awaiting server response." Ensure both sides use compatible versions.
+
+See: https://github.com/BroadbandForum/obudpst/issues/14
+
+### Minimum Test Duration Context (Upstream Issue #16)
+
+The UDPST binary enforces a minimum test duration of 5 seconds (`MIN_TESTINT_TIME = 5` in `udpst.h`). This was chosen to allow ramp-up time across a wide range of bandwidths. The `TIMEOUT_NOTRAFFIC` of 3 seconds means a 5-second test only has a 2-second margin before the watchdog could trigger if traffic is momentarily disrupted.
+
+See: https://github.com/BroadbandForum/obudpst/issues/16
 
 ## Solutions
 
-### Solution 1: Obtain a Stable UDPST Binary (Recommended)
+### Solution 1: Use IPv6 Mode (Immediate Workaround)
 
-**Option A: Download Official Release**
+IPv6 does not exhibit this termination pattern. If your server supports IPv6:
 ```bash
-# Check UDPST project repository for stable releases
-# Look for versions with past build dates and stable tags
-wget https://github.com/BroadbandForum/obudpst/releases/download/vX.X.X/udpst
-chmod +x udpst
+./udpst -d -p 25000 -t 100 -6 <server_ipv6_address>
 ```
 
-**Option B: Compile from Source**
+In the Web GUI, select "IPv6" in the IP Version dropdown.
+
+### Solution 2: Fix IPv4 Network Path
+
+**Verify and fix firewall/NAT/conntrack:**
 ```bash
-# Clone official repository
+# Ensure ephemeral UDP ports are open bidirectionally
+sudo ufw allow 32768:60999/udp
+
+# Increase conntrack timeouts
+sudo sysctl -w net.netfilter.nf_conntrack_udp_timeout=60
+sudo sysctl -w net.netfilter.nf_conntrack_udp_timeout_stream=180
+
+# Ensure conntrack table is not full
+sudo sysctl -w net.netfilter.nf_conntrack_max=262144
+
+# Disable any NAT/masquerade on the test path if possible
+# Check for carrier-grade NAT (CGNAT) between client and server
+
+# Verify socket buffers
+sudo sysctl -w net.core.rmem_max=134217728
+sudo sysctl -w net.core.wmem_max=134217728
+```
+
+### Solution 3: Obtain a Verified Binary
+
+**Option A: Compile from source on matching platforms**
+```bash
 git clone https://github.com/BroadbandForum/obudpst.git
 cd obudpst
 
 # Ensure system time is correct
 date
-# If incorrect: sudo timedatectl set-time 'YYYY-MM-DD HH:MM:SS'
 
-# Compile with optimizations
+# Compile
 cmake -DCMAKE_BUILD_TYPE=Release .
 make
 
-# Verify build
+# Verify
 ./udpst -V
-# Check that build date is in the past and version is stable
 ```
 
-### Solution 2: Verify Binary Version
+Compile both client and server on the same platform/architecture to avoid struct padding issues (upstream issue #24).
 
-**Check your current binary:**
+**Option B: Download official release**
 ```bash
-./udpst -V
+# Check UDPST project repository for stable releases
+wget https://github.com/BroadbandForum/obudpst/releases/download/vX.X.X/udpst
+chmod +x udpst
 ```
 
-**Look for:**
-- Version number (avoid "dev", "test", "alpha" versions)
-- Build date **in the past** (not 2026 when it's 2024/2025)
-- Protocol version (should be 10 or 11)
-- Optimizations: SendMMsg+GSO, RecvMMsg+Trunc
+### Solution 4: Run Multiple Short Tests
 
-**Warning signs:**
-- Build date in the future → Development build
-- Missing optimizations → Performance issues
-- Protocol version < 10 → Outdated
-
-### Solution 3: Workaround for Short Tests
-
-While waiting for a corrected binary, you can work around the bug:
-
-**Run multiple short tests:**
+While diagnosing the root cause, collect data in 5-second chunks:
 ```bash
 # Instead of one 100-second test:
-./udpst -d -t 100 10.50.3.1
-
-# Run twenty 5-second tests:
 for i in {1..20}; do
   ./udpst -d -t 5 10.50.3.1
   sleep 1
 done
 ```
 
-This collects the same total duration of data in 5-second chunks that complete before the bug triggers.
+5-second tests complete before the termination pattern triggers (~3 seconds of data + 3 second watchdog = 6 seconds needed to trigger).
 
-### Solution 4: Contact UDPST Developers
+## Using the Web GUI
 
-If you obtained the binary from the project maintainers, report the issue:
+### Web GUI Features for This Issue
 
-1. **Describe the symptom**: Tests terminate after exactly 6 seconds
-2. **Include binary info**: Build date (Feb 2026), version string
-3. **Provide evidence**: Test output showing 6 intervals collected
-4. **Mention network config**: All parameters verified correct
-
-## Using the Web GUI with the Buggy Binary
-
-The Web GUI has been updated to handle this bug gracefully:
-
-### Features Added
-
-1. **Binary Version Detection**: Warns when build date is in the future
-2. **Partial Result Success**: Tests with 5+ intervals marked as "partial success" instead of "failed"
-3. **Enhanced Error Messages**: Clearly identifies the 6-second bug in error text
-4. **Diagnostics Page**: Tools to verify network config and identify binary issues
+1. **Early Termination Detection**: Automatically detects the 5-7 interval IPv4 pattern
+2. **Partial Result Success**: Tests with 5+ valid intervals are marked "completed_partial" or "completed_warnings" instead of "failed"
+3. **Actionable Error Messages**: Identifies the pattern and suggests checking firewall/NAT/conntrack and trying IPv6
+4. **Diagnostics Page**: Tools to verify network config and binary info
 
 ### Interpreting Test Results
 
 When you see:
 ```
 Status: completed_partial
-Warning: Test collected 6 intervals of data before connection failure.
-This may indicate a known UDPST binary bug causing early termination.
+Warning: Test collected 6 intervals of data before the UDPST no-traffic watchdog
+terminated the connection. This IPv4 early termination pattern may be caused by
+firewall/NAT/conntrack issues or a binary defect. Try IPv6 mode.
 ```
 
 **This means:**
-- ✅ Network configuration is working correctly
-- ✅ The 6 seconds of data collected is valid
-- ❌ The binary has a bug preventing longer tests
-- 💡 Solution: Obtain a corrected binary
+- The 6 seconds of data collected is valid and displayed
+- The connection was terminated by the TIMEOUT_NOTRAFFIC watchdog (3s of silence)
+- Something stopped UDP traffic on the IPv4 path at ~second 3-6
+- IPv6 mode is a verified workaround
 
 ### Using Diagnostics Page
 
@@ -192,51 +207,48 @@ This may indicate a known UDPST binary bug causing early termination.
 2. Click **Binary Info** tab
    - Check for future build date warning
    - Verify optimizations are present
+   - Note protocol version for compatibility checks
 3. Click **System Config** tab
    - Verify ephemeral ports (should be 32768-60999)
-   - Verify socket buffers (should be ≥ 2MB)
+   - Verify socket buffers (should be >= 2MB)
+   - Check conntrack settings
 4. Click **Quick Test** tab
-   - Run 2-second test to verify basic connectivity
-   - If successful: Network is fine, binary is the issue
+   - Run a 5-second test to verify basic connectivity
+   - Compare IPv4 vs IPv6 results
 
 ## FAQ
 
 **Q: Why does netcat (nc) not work for testing UDP?**
 
-A: Netcat sends/receives raw UDP packets without implementing the UDPST protocol. UDPST requires:
-- Specific message formats (control setup, load adjustment, measurement)
-- PDV (Packet Delay Variation) feedback
-- Bidirectional communication with timing requirements
-
-Use `./udpst` CLI or the Web GUI "Quick Test" feature instead.
+A: Netcat sends/receives raw UDP packets without implementing the UDPST protocol. UDPST requires specific message formats (control setup, load adjustment, measurement), PDV feedback, and bidirectional communication with timing requirements. Use `./udpst` CLI or the Web GUI "Quick Test" feature instead.
 
 **Q: The Web GUI says "ErrorStatus 200" - is that success?**
 
-A: No. ErrorStatus 0 = success. ErrorStatus 200 = "minimum required connections unavailable". However, if valid data was collected, the Web GUI now treats this as "partial success" and displays the results.
+A: No. ErrorStatus 0 = success. ErrorStatus 200 = "minimum required connections unavailable". However, if valid data was collected, the Web GUI treats this as "partial success" and displays the results.
 
-**Q: Can I increase the timeout to fix this?**
+**Q: Can I increase TIMEOUT_NOTRAFFIC to fix this?**
 
-A: No. The bug is in the binary's logic, not timeout settings. The binary incorrectly terminates the connection after 6 intervals. Increasing conntrack timeouts won't help because the connection is being closed by the binary itself, not by the network stack.
+A: Increasing the timeout would delay the termination but would not fix the underlying cause of traffic loss. The 3-second timeout is a reasonable watchdog value. If traffic genuinely stops for 3 seconds during a speed test, something is wrong with the network path or the binary. Fix the root cause instead.
 
 **Q: Why does the server log show "Connection from X.X.X.X lost"?**
 
-A: The buggy client binary stops sending acknowledgments after 6 seconds, causing the server to detect a lost connection. This is the bug manifesting from the server's perspective.
+A: When the client stops sending acknowledgments (either because its watchdog fired, or because return traffic is being dropped), the server detects a lost connection. Check both directions of the IPv4 UDP path.
 
-**Q: Will updating my system fix this?**
+**Q: Why does IPv6 work but IPv4 does not?**
 
-A: No. System updates won't fix a bug in the UDPST binary. You need a corrected UDPST binary, not system updates.
+A: IPv6 typically bypasses several IPv4-specific network layers: NAT (IPv6 generally uses end-to-end addressing), conntrack state tracking (less aggressive for IPv6), and IPv4-specific firewall rules. Additionally, some binary bugs or struct padding issues may only manifest in IPv4 code paths.
 
 ## Verification Steps
 
-After obtaining a new binary, verify it works:
+After applying a fix, verify it works:
 
-### 1. Check Build Date
+### 1. Check Binary Info
 ```bash
-./udpst -V | grep Built
-# Should show a date in the past
+./udpst -V
+# Verify: build date is reasonable, protocol version >= 10, optimizations present
 ```
 
-### 2. Run Extended Test
+### 2. Run Extended IPv4 Test
 ```bash
 ./udpst -d -t 30 -f json YOUR_SERVER_IP
 ```
@@ -246,33 +258,35 @@ Check the output:
 {
   "TestIntTime": 30,
   "IncrementalResult": [
-    // Should see ~30 entries, not just 6
+    // Should see ~30 entries, not just 5-7
   ]
 }
 ```
 
-### 3. Use Web GUI Diagnostics
-1. Upload new binary to server
-2. Update path in backend `.env` if necessary
-3. Go to Diagnostics → Binary Info
-4. Verify no future date warning
-5. Run Quick Test → should succeed
-6. Run full test → should complete full duration
+### 3. Compare IPv4 vs IPv6
+```bash
+# IPv4
+./udpst -d -t 10 -f json SERVER_IPV4
+# IPv6
+./udpst -d -t 10 -f json -6 SERVER_IPV6
+# Both should produce ~10 intervals
+```
 
 ## Additional Resources
 
 - **UDPST Project**: https://github.com/BroadbandForum/obudpst
+- **Upstream Issue #16**: Minimum test interval (5s) and TIMEOUT_NOTRAFFIC context
+- **Upstream Issue #14**: Client/server version compatibility
+- **Upstream Issue #24**: Cross-platform struct padding inconsistency
 - **Protocol Documentation**: See `API_SPECIFICATION.md` in project root
 - **Network Setup Guide**: See `QUICKSTART.md` in project root
 - **Web GUI Logs**: `/path/to/project/backend/logs/`
 
 ## Summary
 
-- ❌ **Problem**: UDPST binary bug causes 6-second test limit
-- ✅ **Evidence**: Future build date, identical CLI/GUI behavior
-- ✅ **Network**: Verified correct configuration
-- 💡 **Solution**: Obtain stable binary with past build date
-- 🔧 **Workaround**: Run multiple short tests (≤5 seconds each)
-- 📊 **Web GUI**: Now detects and reports this issue clearly
-
-The Web GUI is functioning correctly. The issue is entirely within the UDPST binary, which needs to be replaced with a corrected version.
+- **Pattern**: IPv4 tests terminate after ~6 seconds (5-7 intervals), IPv6 works fine
+- **Mechanism**: UDPST `TIMEOUT_NOTRAFFIC` watchdog (3s) fires after traffic stops flowing
+- **Possible causes**: IPv4 firewall/NAT/conntrack, binary build defect, cross-platform struct padding, version mismatch
+- **Immediate fix**: Use IPv6 mode
+- **Diagnosis**: Check conntrack state, firewall rules, NAT configuration on IPv4 path
+- **Web GUI**: Detects this pattern automatically, shows partial results, suggests solutions

@@ -27,6 +27,7 @@ export function parseUdpstOutput(output) {
     hasValidData: subIntervalData.hasData,
     intervalCount: subIntervalData.count,
     completionPercentage: subIntervalData.completionPercentage,
+    expectedDuration: subIntervalData.expectedDuration,
     raw: jsonData
   };
 }
@@ -196,7 +197,8 @@ function extractSubIntervalData(json, intervals) {
   return {
     count: intervalCount,
     hasData,
-    completionPercentage
+    completionPercentage,
+    expectedDuration
   };
 }
 
@@ -266,7 +268,8 @@ export function classifyErrorSeverity(errorStatus, errorMessage2, results, testT
   const hasValidData = results?.hasValidData || false;
   const intervalCount = results?.intervalCount || 0;
   const isIPv6 = ipVersion === 'ipv6';
-  const is6SecondBug = !isIPv6 && intervalCount >= 5 && intervalCount <= 7;
+  const expectedDuration = results?.expectedDuration || 0;
+  const isEarlyTermination = !isIPv6 && intervalCount >= 5 && intervalCount <= 7 && expectedDuration > 7;
 
   if (errorStatus === 200 && testType === 'downstream' && hasValidData) {
     if (msg2Lower.includes('incoming traffic has completely stopped')) {
@@ -293,11 +296,11 @@ export function classifyErrorSeverity(errorStatus, errorMessage2, results, testT
   }
 
   if (errorStatus === 3 || errorStatus === 200) {
-    if (hasValidData && is6SecondBug) {
+    if (hasValidData && isEarlyTermination) {
       return {
         severity: 'WARNING',
-        reason: 'Known IPv4 early termination bug',
-        message: `Test collected ${intervalCount} intervals of valid data before the known IPv4 binary bug caused early termination. Try IPv6 mode for full test duration.`
+        reason: 'IPv4 early termination pattern',
+        message: `Test collected ${intervalCount} intervals of valid data (requested ${expectedDuration}s) before traffic stopped and the UDPST no-traffic watchdog (TIMEOUT_NOTRAFFIC=3s) terminated the connection. This pattern is IPv4-specific. Possible causes: IPv4 firewall/NAT/conntrack dropping UDP return traffic, binary build issue, or cross-platform struct padding mismatch (see upstream issue #24). Try IPv6 mode which does not exhibit this behavior.`
       };
     }
     if (hasValidData) {

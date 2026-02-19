@@ -2,6 +2,61 @@
 
 ## Version Log
 
+### v1.0.9 - 2026-02-19
+
+**Corrected IPv4 Early Termination Analysis, Upstream Issue Integration, and Improved Diagnostics**
+
+#### Overview
+This release corrects the root cause analysis of the "6-second bug" and integrates findings from upstream UDPST GitHub issues. The previous characterization attributed IPv4 early termination solely to a binary defect. Analysis of the UDPST C source code reveals that the `TIMEOUT_NOTRAFFIC` watchdog (3 seconds, defined in `udpst.h`) is a normal protocol mechanism — not a bug. The ~6 second termination pattern occurs because traffic stops flowing at ~second 3-6 on IPv4, then the 3-second watchdog expires. Multiple root causes are now presented: firewall/NAT/conntrack issues, binary defects, cross-platform struct padding, and version incompatibility.
+
+#### Key Changes
+
+1. **Corrected Root Cause Analysis**: The "6-second bug" is now correctly identified as an IPv4 early termination pattern caused by the `TIMEOUT_NOTRAFFIC` watchdog firing after UDP traffic stops flowing. The previous characterization as "a known binary bug" was overly specific — multiple causes are possible.
+
+2. **Upstream Issue Integration**:
+   - Issue #16: Documents that `MIN_TESTINT_TIME = 5s` and `TIMEOUT_NOTRAFFIC = 3s` are by design
+   - Issue #14: Client/server version incompatibility (v7.4.0 vs v8.1.0) can cause connection failures
+   - Issue #24: Cross-platform struct padding in `subIntStats` causes data validation failures between different platforms
+
+3. **Improved Detection Logic**: `is6SecondBug` renamed to `isEarlyTermination` with corrected guard (`expectedDuration > 7` instead of `expectedDuration > 10`) to avoid false positives on legitimate short tests while catching the pattern earlier.
+
+4. **Parser `expectedDuration` Propagation**: The JSON `TestIntTime` value is now propagated through `extractSubIntervalData()` into the parsed results object, allowing `classifyErrorSeverity()` to use the actual requested duration from the binary output (not just the user-provided parameter).
+
+5. **Actionable Error Messages**: All error messages now present multiple possible causes and specific diagnostic steps instead of definitively blaming the binary.
+
+#### Detailed Changes
+
+**Parser Changes** (`backend/src/utils/parser.js`)
+- `extractSubIntervalData()`: Now returns `expectedDuration` from JSON `TestIntTime`
+- `parseUdpstOutput()`: Includes `expectedDuration` in returned results object
+- `classifyErrorSeverity()`: Renamed `is6SecondBug` to `isEarlyTermination`, added `expectedDuration > 7` guard from results object
+- Updated warning messages to reference TIMEOUT_NOTRAFFIC mechanism and multiple root causes
+
+**Error Description Changes** (`backend/src/services/udpst.js`)
+- `describeErrorStatus()`: Renamed `is6SecondBug` to `isEarlyTermination` with `expectedDuration > 7` guard
+- ErrorStatus 200 early termination: Now references TIMEOUT_NOTRAFFIC watchdog, firewall/NAT/conntrack, struct padding, and IPv6 workaround
+- ErrorStatus 3 early termination: Same corrected messaging
+- ErrorStatus 1: Added version compatibility reference (upstream issue #14)
+- ErrorStatus 4: Added version compatibility reference (upstream issue #14)
+- Exit handler warning message: Updated to reference TIMEOUT_NOTRAFFIC watchdog instead of "known binary bug"
+
+**Documentation Changes**
+- `TROUBLESHOOTING_UDPST_BINARY.md`: Complete rewrite with TIMEOUT_NOTRAFFIC mechanism explanation, four categorized root causes, IPv4-specific diagnostic commands, upstream issue references
+- `README.md`: "Binary Bug Warning" section renamed to "IPv4 Early Termination Warning" with corrected analysis and upstream issue links
+
+#### Fixed Issues
+1. `is6SecondBug` detection in `parser.js` lacked `expectedDuration` guard, causing false positives on legitimate 5-second tests
+2. `expectedDuration` from JSON output was computed but not returned by `extractSubIntervalData()`
+3. Error messages definitively blamed the binary when multiple root causes exist
+4. ErrorStatus 1 and 4 messages did not mention version compatibility
+5. Troubleshooting documentation did not explain the TIMEOUT_NOTRAFFIC watchdog mechanism
+6. No reference to upstream issues (#14, #16, #24) that inform the correct diagnosis
+
+#### Breaking Changes
+- None. Error messages are more accurate but the API contract is unchanged.
+
+---
+
 ### v1.0.8 - 2026-02-19
 
 **IPv6 Awareness, Remote Health Check, Parser Fixes, and DiagnosticsPage Repair**

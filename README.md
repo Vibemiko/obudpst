@@ -34,21 +34,20 @@ capacity between them. The load traffic is only sent in one direction at a
 time, and status feedback messages are sent periodically in the opposite
 direction.
 
-## Critical Notice: Binary Bug Warning (IPv4 Only)
+## Critical Notice: IPv4 Early Termination Warning
 
-If you experience **IPv4** tests that consistently fail after **exactly 6 seconds** (6 intervals) regardless of requested duration, your UDPST binary has a known bug. This issue is identified by:
+If you experience **IPv4** tests that consistently terminate after approximately **6 seconds** (5-7 intervals) regardless of requested duration, the UDPST `TIMEOUT_NOTRAFFIC` watchdog (3 seconds) is firing because UDP traffic stops flowing on the IPv4 path. This pattern is identified by:
 
-- Build date in the future (e.g., "Feb 2026" when current year is 2024/2025)
-- Tests stop after collecting exactly 6 intervals of valid data
-- Error "Minimum required connections unavailable" despite correct network configuration
+- Tests collect 5-7 intervals of valid data then terminate
+- Error "Minimum required connections unavailable" (ErrorStatus 200 or 3)
 - Identical behavior in both CLI and Web GUI
 - **IPv6 tests are NOT affected** and complete all requested intervals successfully
 
-**Workaround**: Use IPv6 mode for full test duration. The Web GUI supports both IPv4 and IPv6 test modes.
+**Possible causes**: IPv4 firewall/NAT/conntrack dropping UDP return traffic, binary build defect, cross-platform struct padding mismatch ([upstream issue #24](https://github.com/BroadbandForum/obudpst/issues/24)), or client/server version incompatibility ([upstream issue #14](https://github.com/BroadbandForum/obudpst/issues/14)).
 
-**Solution**: Obtain a stable UDPST binary with a past build date and stable version number.
+**Immediate workaround**: Use IPv6 mode for full test duration. The Web GUI supports both IPv4 and IPv6 test modes.
 
-See [TROUBLESHOOTING_UDPST_BINARY.md](./TROUBLESHOOTING_UDPST_BINARY.md) for complete diagnosis and solutions.
+**Diagnosis**: Check conntrack state, NAT rules, and IPv4-specific firewall configuration. See [TROUBLESHOOTING_UDPST_BINARY.md](./TROUBLESHOOTING_UDPST_BINARY.md) for complete analysis, diagnostic steps, and solutions.
 
 For upstream tests, the feedback messages from the server(s) instruct the client
 on how it should adjust its transmission rate based on the presence or absence
@@ -858,12 +857,20 @@ $ cmake -D SUPP_INVPDU_WARN=ON .
 
 For the complete version history of the Web GUI, including changes, fixes, and new features, please refer to [RELEASE_NOTE.md](./RELEASE_NOTE.md).
 
-**Current Web GUI Version:** v1.0.8 (2026-02-19)
+**Current Web GUI Version:** v1.0.9 (2026-02-19)
 
-**Recent Changes (v1.0.8):**
+**Recent Changes (v1.0.9):**
+- Corrected "6-second bug" analysis: identified as IPv4 early termination caused by TIMEOUT_NOTRAFFIC watchdog (3s), not definitively a binary bug
+- Revised error messages to present multiple root causes (firewall/NAT/conntrack, binary defect, cross-platform struct padding, version mismatch)
+- Added `expectedDuration` from JSON output to parser results for accurate early termination detection
+- Renamed `is6SecondBug` to `isEarlyTermination` with corrected guard (`expectedDuration > 7`)
+- Added upstream issue references (#14 version compatibility, #16 minimum test interval, #24 struct padding)
+- Rewrote TROUBLESHOOTING_UDPST_BINARY.md with TIMEOUT_NOTRAFFIC mechanism explanation and IPv4-specific diagnostic steps
+
+**Previous Changes (v1.0.8):**
 - Fixed health check to probe remote UDPST servers instead of checking local ports
 - Fixed JSON parser for IPv6 test output (nested `Output.IncrementalResult` structure)
-- Added IPv6 awareness to error classification (6-second bug is IPv4-only)
+- Added IPv6 awareness to error classification (early termination is IPv4-only)
 - Fixed DiagnosticsPage API calls (was using non-existent methods)
 - Fixed ClientPage to display `completed_partial` test results
 - Fixed IPv6 ping to use `ping -6` on modern Debian
