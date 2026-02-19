@@ -107,6 +107,10 @@ else
     exit 1
 fi
 
+print_step "Restoring script permissions..."
+chmod 755 *.sh backend/*.sh 2>/dev/null || true
+print_success "Script permissions restored (755)"
+
 print_step "Building frontend..."
 if npm run build:frontend; then
     print_success "Frontend built successfully"
