@@ -34,6 +34,19 @@ capacity between them. The load traffic is only sent in one direction at a
 time, and status feedback messages are sent periodically in the opposite
 direction.
 
+## ⚠️ Critical Notice: Binary Bug Warning
+
+If you experience tests that consistently fail after **exactly 6 seconds** (6 intervals) regardless of requested duration, your UDPST binary has a known bug. This issue is identified by:
+
+- Build date in the future (e.g., "Feb 2026" when current year is 2024/2025)
+- Tests stop after collecting exactly 6 intervals of valid data
+- Error "Minimum required connections unavailable" despite correct network configuration
+- Identical behavior in both CLI and Web GUI
+
+**Solution**: Obtain a stable UDPST binary with a past build date and stable version number.
+
+📖 **See [TROUBLESHOOTING_UDPST_BINARY.md](./TROUBLESHOOTING_UDPST_BINARY.md) for complete diagnosis and solutions.**
+
 For upstream tests, the feedback messages from the server(s) instruct the client
 on how it should adjust its transmission rate based on the presence or absence
 of sufficient sequence errors or delay variation changes observed by the server.

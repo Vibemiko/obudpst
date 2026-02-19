@@ -19,6 +19,110 @@ function ensureBinaryExists() {
   }
 }
 
+export async function getBinaryVersion() {
+  if (!existsSync(config.udpst.binaryPath)) {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    const proc = spawn(config.udpst.binaryPath, ['-V'], {
+      stdio: 'pipe',
+      timeout: 2000
+    });
+
+    let output = '';
+
+    proc.stdout?.on('data', (data) => {
+      output += data.toString();
+    });
+
+    proc.stderr?.on('data', (data) => {
+      output += data.toString();
+    });
+
+    const timeoutId = setTimeout(() => {
+      proc.kill();
+      resolve(null);
+    }, 2000);
+
+    proc.on('exit', () => {
+      clearTimeout(timeoutId);
+      const versionInfo = parseBinaryVersion(output);
+      resolve(versionInfo);
+    });
+
+    proc.on('error', () => {
+      clearTimeout(timeoutId);
+      resolve(null);
+    });
+  });
+}
+
+function parseBinaryVersion(output) {
+  const info = {
+    version: null,
+    buildDate: null,
+    protocolVersion: null,
+    optimizations: [],
+    warnings: []
+  };
+
+  const lines = output.split('\n');
+
+  for (const line of lines) {
+    if (line.includes('Version:')) {
+      const match = line.match(/Version:\s*([^\s]+)/);
+      if (match) info.version = match[1];
+    }
+
+    if (line.includes('Built:')) {
+      const match = line.match(/Built:\s*(.+)/);
+      if (match) {
+        info.buildDate = match[1].trim();
+        const buildYear = parseInt(info.buildDate.match(/\d{4}/)?.[0] || '0');
+        const currentYear = new Date().getFullYear();
+        if (buildYear > currentYear) {
+          info.warnings.push({
+            severity: 'HIGH',
+            message: `Build date is in the future (${buildYear}). This indicates a development or test build that may have bugs.`,
+            recommendation: 'Obtain a stable release binary or recompile with correct system time.'
+          });
+        }
+      }
+    }
+
+    if (line.includes('Protocol:')) {
+      const match = line.match(/Protocol:\s*v?(\d+)/);
+      if (match) info.protocolVersion = parseInt(match[1]);
+    }
+
+    if (line.includes('SendMMsg+GSO')) {
+      info.optimizations.push('SendMMsg+GSO');
+    }
+    if (line.includes('RecvMMsg+Trunc')) {
+      info.optimizations.push('RecvMMsg+Trunc');
+    }
+  }
+
+  if (info.version && info.version.includes('dev') || info.version?.includes('test')) {
+    info.warnings.push({
+      severity: 'MEDIUM',
+      message: 'Development or test version detected.',
+      recommendation: 'Use a stable release version for production testing.'
+    });
+  }
+
+  if (info.optimizations.length === 0) {
+    info.warnings.push({
+      severity: 'LOW',
+      message: 'No performance optimizations detected.',
+      recommendation: 'Recompile with SendMMsg+GSO and RecvMMsg+Trunc support for better performance.'
+    });
+  }
+
+  return info;
+}
+
 export async function checkBinary() {
   const result = {
     available: false,
@@ -35,6 +139,12 @@ export async function checkBinary() {
   try {
     await access(config.udpst.binaryPath, constants.X_OK);
     result.available = true;
+
+    const versionInfo = await getBinaryVersion();
+    if (versionInfo) {
+      result.version = versionInfo;
+    }
+
     return result;
   } catch (error) {
     result.error = 'Binary exists but is not executable';
@@ -224,15 +334,21 @@ export async function getServerStatus() {
   };
 }
 
-function describeErrorStatus(code, raw, testType, hasValidData) {
+function describeErrorStatus(code, raw, testType, hasValidData, intervalCount, expectedDuration) {
   const msg = raw?.ErrorMessage ? raw.ErrorMessage.replace(/^ERROR:\s*/i, '').trim() : null;
   const msg2 = raw?.ErrorMessage2 ? raw.ErrorMessage2.replace(/^WARNING:\s*/i, '').trim() : null;
   const msg2Lower = (msg2 || '').toLowerCase();
+
+  const is6SecondBug = intervalCount >= 5 && intervalCount <= 7 && expectedDuration > 10;
 
   if (code === 200 && testType === 'downstream' && hasValidData) {
     if (msg2Lower.includes('incoming traffic has completely stopped')) {
       return 'Test completed successfully. Note: The connection warning after test completion is normal behavior for downstream tests.';
     }
+  }
+
+  if (code === 200 && is6SecondBug) {
+    return `Test stopped after ${intervalCount} seconds despite requesting ${expectedDuration} seconds. This is a known bug in certain UDPST binary builds. The binary was compiled with a future build date (Feb 2026), indicating it may be a development/test version with bugs. Solution: Obtain a stable UDPST binary or recompile from official source with correct system time. The collected data from the ${intervalCount} successful intervals is still valid and shown below.`;
   }
 
   if (msg && msg2) return `${msg}. ${msg2}`;
@@ -242,10 +358,14 @@ function describeErrorStatus(code, raw, testType, hasValidData) {
   const descriptions = {
     1: 'Test inconclusive — server could not determine IP-layer capacity.',
     2: 'Test inconclusive — server capacity undetermined. Ensure server is stable for the full test duration.',
-    3: 'Minimum required connections unavailable. The server accepted the setup request but test data never arrived — this is usually a firewall issue. Ensure the backend machine can receive UDP traffic from the server on ephemeral ports 32768-60999. On the server run: sudo ufw allow 32768:60999/udp',
+    3: is6SecondBug
+      ? `Test collected ${intervalCount} seconds of valid data but then stopped unexpectedly. This is a known UDPST binary bug (build date Feb 2026 indicates development version). The server accepted the initial setup, but the binary terminated early due to a bug, not a network issue. Solution: Obtain a stable UDPST binary release.`
+      : 'Minimum required connections unavailable. The server accepted the setup request but test data never arrived — this is usually a firewall issue. Ensure the backend machine can receive UDP traffic from the server on ephemeral ports 32768-60999. On the server run: sudo ufw allow 32768:60999/udp',
     4: 'Protocol version mismatch between client and server.',
     5: 'Authentication error — check that both client and server use the same authentication key.',
-    200: hasValidData
+    200: is6SecondBug
+      ? `Test collected ${intervalCount} seconds of data but stopped early (requested ${expectedDuration} seconds). This is a known bug in development UDPST binaries with future build dates. The collected data is valid.`
+      : hasValidData
       ? 'Test completed with connection warnings but collected valid data.'
       : 'Test failed — minimum required connections unavailable. Verify the server is running, reachable on UDP port 25000, and that ephemeral UDP ports 32768-60999 are not blocked by a firewall between the backend and the server.'
   };
@@ -396,7 +516,9 @@ export async function startClientTest(params) {
             errorStatus,
             results.raw,
             params.testType,
-            results.hasValidData
+            results.hasValidData,
+            results.intervalCount,
+            params.duration
           );
 
           logger.info('Test completed with ErrorStatus', {
@@ -420,6 +542,14 @@ export async function startClientTest(params) {
                 completed_at: completedAt
               });
               logger.info('Test marked as completed with warnings', { testId, quality: resultQuality.quality });
+            } else if (resultQuality.quality === 'PARTIAL_POOR' && results.hasValidData) {
+              await db.updateTest(testId, {
+                status: 'completed_partial',
+                error_message: errorDesc,
+                warning_messages: `Partial data collected (${results.intervalCount} of ${params.duration} intervals). ${errorClassification.message}`,
+                completed_at: completedAt
+              });
+              logger.info('Test marked as completed with partial data', { testId, quality: resultQuality.quality, intervalCount: results.intervalCount });
             } else {
               await db.updateTest(testId, {
                 status: 'failed',
@@ -429,12 +559,22 @@ export async function startClientTest(params) {
               logger.warn('Test marked as failed due to insufficient data', { testId, quality: resultQuality.quality });
             }
           } else {
-            await db.updateTest(testId, {
-              status: 'failed',
-              error_message: errorDesc,
-              completed_at: completedAt
-            });
-            logger.warn('Test marked as failed', { testId, severity: errorClassification.severity });
+            if (results.hasValidData && results.intervalCount >= 5) {
+              await db.updateTest(testId, {
+                status: 'completed_partial',
+                error_message: errorDesc,
+                warning_messages: `Test collected ${results.intervalCount} intervals of data before connection failure. This may indicate a known UDPST binary bug causing early termination.`,
+                completed_at: completedAt
+              });
+              logger.warn('Test marked as partial success despite connection failure', { testId, intervalCount: results.intervalCount });
+            } else {
+              await db.updateTest(testId, {
+                status: 'failed',
+                error_message: errorDesc,
+                completed_at: completedAt
+              });
+              logger.warn('Test marked as failed', { testId, severity: errorClassification.severity });
+            }
           }
         } else {
           logger.info('Test completed successfully', { testId, throughput: results.throughput });

@@ -2,6 +2,8 @@ import express from 'express';
 import * as udpst from '../services/udpst.js';
 import * as db from '../services/database.js';
 import * as healthCheck from '../services/health-check.js';
+import * as diagnostics from '../services/diagnostics.js';
+import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 
 export const router = express.Router();
@@ -332,6 +334,104 @@ router.post('/health/check-servers', async (req, res) => {
     });
   } catch (error) {
     logger.error('Health check failed', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+router.get('/diagnostics/system', async (req, res) => {
+  try {
+    logger.info('Getting system network configuration');
+    const systemConfig = await diagnostics.getSystemNetworkConfig();
+    const firewall = await diagnostics.getFirewallStatus();
+
+    res.json({
+      success: true,
+      systemConfig,
+      firewall
+    });
+  } catch (error) {
+    logger.error('Diagnostics failed', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+router.get('/diagnostics/connections', async (req, res) => {
+  try {
+    logger.info('Getting UDP connection tracking');
+    const tracking = await diagnostics.getUDPConnectionTracking();
+
+    res.json({
+      success: true,
+      ...tracking
+    });
+  } catch (error) {
+    logger.error('Connection tracking failed', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+router.post('/diagnostics/quick-test', async (req, res) => {
+  try {
+    const { server, port } = req.body;
+
+    if (!server) {
+      return res.status(400).json({
+        success: false,
+        error: 'Server parameter is required',
+        code: 'INVALID_PARAMETERS'
+      });
+    }
+
+    logger.info('Running quick test', { server, port: port || 25000 });
+    const result = await diagnostics.runQuickTest(server, port || 25000, config.udpst.binaryPath);
+
+    res.json({
+      success: true,
+      test: result
+    });
+  } catch (error) {
+    logger.error('Quick test failed', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+router.post('/diagnostics/complete', async (req, res) => {
+  try {
+    const { server } = req.body;
+
+    if (!server) {
+      return res.status(400).json({
+        success: false,
+        error: 'Server parameter is required',
+        code: 'INVALID_PARAMETERS'
+      });
+    }
+
+    logger.info('Running complete diagnostics', { server });
+    const result = await diagnostics.getCompleteDiagnostics(server, config.udpst.binaryPath);
+
+    res.json({
+      success: true,
+      diagnostics: result
+    });
+  } catch (error) {
+    logger.error('Complete diagnostics failed', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message,

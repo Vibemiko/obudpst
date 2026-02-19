@@ -1,6 +1,4 @@
 import { spawn } from 'child_process';
-import dgram from 'dgram';
-import net from 'net';
 import { logger } from '../utils/logger.js';
 
 const CONTROL_PORT_TIMEOUT = 3000;
@@ -115,59 +113,76 @@ function pingHost(host) {
 
 function checkUDPPort(host, port) {
   return new Promise((resolve) => {
-    const socket = dgram.createSocket('udp4');
+    const checkCommands = [
+      { cmd: 'ss', args: ['-ulpn'] },
+      { cmd: 'netstat', args: ['-ulpn'] },
+      { cmd: 'lsof', args: ['-i', `UDP:${port}`, '-sTCP:LISTEN'] }
+    ];
+
+    let commandTried = false;
     let resolved = false;
 
-    const timeoutId = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        socket.close();
-        resolve(false);
-      }
-    }, CONTROL_PORT_TIMEOUT);
-
-    socket.on('message', () => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeoutId);
-        socket.close();
-        resolve(true);
-      }
-    });
-
-    socket.on('error', (err) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeoutId);
-        socket.close();
-        if (err.code === 'ECONNREFUSED') {
-          resolve(false);
-        } else {
+    const tryNextCommand = (index) => {
+      if (resolved || index >= checkCommands.length) {
+        if (!resolved) {
+          resolved = true;
           resolve(false);
         }
+        return;
       }
-    });
 
-    try {
-      const testMessage = Buffer.from('UDPST_HEALTH_CHECK');
-      socket.send(testMessage, port, host, (err) => {
-        if (err) {
-          if (!resolved) {
+      const { cmd, args } = checkCommands[index];
+
+      const proc = spawn(cmd, args, {
+        stdio: 'pipe',
+        timeout: CONTROL_PORT_TIMEOUT
+      });
+
+      let output = '';
+
+      proc.stdout?.on('data', (data) => {
+        output += data.toString();
+      });
+
+      const timeoutId = setTimeout(() => {
+        if (!resolved) {
+          proc.kill();
+          tryNextCommand(index + 1);
+        }
+      }, CONTROL_PORT_TIMEOUT);
+
+      proc.on('exit', (code) => {
+        clearTimeout(timeoutId);
+        if (resolved) return;
+
+        if (code === 0 && output) {
+          const listening = output.split('\n').some(line => {
+            const lowerLine = line.toLowerCase();
+            return lowerLine.includes(`:${port}`) &&
+                   (lowerLine.includes('udp') || lowerLine.includes('listen'));
+          });
+
+          if (listening) {
             resolved = true;
-            clearTimeout(timeoutId);
-            socket.close();
-            resolve(false);
+            resolve(true);
+            return;
           }
         }
+
+        tryNextCommand(index + 1);
       });
-    } catch (err) {
-      if (!resolved) {
-        resolved = true;
+
+      proc.on('error', () => {
         clearTimeout(timeoutId);
-        socket.close();
-        resolve(false);
-      }
-    }
+        if (!resolved) {
+          tryNextCommand(index + 1);
+        }
+      });
+
+      commandTried = true;
+    };
+
+    tryNextCommand(0);
   });
 }
 

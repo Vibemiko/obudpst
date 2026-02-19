@@ -1,9 +1,10 @@
 import { Routes, Route, Link } from 'react-router-dom';
-import { Server, Play, History, Info } from 'lucide-react';
+import { Server, Play, History, Info, Activity } from 'lucide-react';
 import ServerPage from './pages/ServerPage';
 import ClientPage from './pages/ClientPage';
 import HistoryPage from './pages/HistoryPage';
 import AboutPage from './pages/AboutPage';
+import { DiagnosticsPage } from './pages/DiagnosticsPage';
 
 function App() {
   return (
@@ -25,6 +26,9 @@ function App() {
                 <NavLink to="/history" icon={<History size={20} />}>
                   History
                 </NavLink>
+                <NavLink to="/diagnostics" icon={<Activity size={20} />}>
+                  Diagnostics
+                </NavLink>
                 <NavLink to="/about" icon={<Info size={20} />}>
                   About
                 </NavLink>
@@ -40,6 +44,7 @@ function App() {
           <Route path="/server" element={<ServerPage />} />
           <Route path="/client" element={<ClientPage />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/diagnostics" element={<DiagnosticsPage />} />
           <Route path="/about" element={<AboutPage />} />
         </Routes>
       </main>
