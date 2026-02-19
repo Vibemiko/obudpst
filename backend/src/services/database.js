@@ -185,6 +185,17 @@ export async function deleteTest(testId) {
   return { success: true };
 }
 
+export async function getActiveTests() {
+  const { data, error } = await supabase
+    .from('tests')
+    .select('*')
+    .eq('status', 'running')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
 export async function deleteAllTests() {
   const { error: resultsError } = await supabase
     .from('test_results')

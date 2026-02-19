@@ -218,13 +218,21 @@ export async function getServerStatus() {
   };
 }
 
-function describeErrorStatus(code) {
+function describeErrorStatus(code, raw) {
+  const msg = raw?.ErrorMessage ? raw.ErrorMessage.replace(/^ERROR:\s*/i, '').trim() : null;
+  const msg2 = raw?.ErrorMessage2 ? raw.ErrorMessage2.replace(/^WARNING:\s*/i, '').trim() : null;
+
+  if (msg && msg2) return `${msg}. ${msg2}`;
+  if (msg) return msg;
+  if (msg2) return msg2;
+
   const descriptions = {
-    1: 'Test inconclusive — server could not determine IP-layer capacity. Check server stability and network path.',
-    2: 'Test inconclusive — server could not determine IP-layer capacity. Ensure the server is running and stable for the full test duration.',
-    3: 'Test failed — insufficient connections available. Check that the server is accepting connections on the configured port.',
-    4: 'Test failed — protocol version mismatch between client and server.',
-    5: 'Test failed — authentication error. Check that both client and server use the same authentication key.'
+    1: 'Test inconclusive — server could not determine IP-layer capacity.',
+    2: 'Test inconclusive — server capacity undetermined. Ensure server is stable for the full test duration.',
+    3: 'Minimum required connections unavailable. Check that the server is running and accepting connections on the configured port.',
+    4: 'Protocol version mismatch between client and server.',
+    5: 'Authentication error — check that both client and server use the same authentication key.',
+    200: 'Test failed — minimum required connections unavailable. Verify the server is running and reachable.'
   };
   return descriptions[code] || `Test completed with error status ${code}. Check server logs for details.`;
 }
@@ -275,13 +283,7 @@ export async function startClientTest(params) {
     args.push('-j');
   }
 
-  if (params.verbose) {
-    args.push('-v');
-  }
-
-  if (params.jsonOutput) {
-    args.push('-f', 'json');
-  }
+  args.push('-f', 'json');
 
   args.push(...params.servers);
 
@@ -353,7 +355,7 @@ export async function startClientTest(params) {
 
         const errorStatus = results.raw?.ErrorStatus;
         if (errorStatus && errorStatus !== 0) {
-          const errorDesc = describeErrorStatus(errorStatus);
+          const errorDesc = describeErrorStatus(errorStatus, results.raw);
           logger.warn('Test completed with ErrorStatus', { testId, errorStatus, exitCode: code });
           await db.saveTestResults(testId, results);
           await db.updateTest(testId, {
@@ -481,4 +483,31 @@ export async function stopTest(testId) {
 
 export async function listTests(params) {
   return db.listTests(params);
+}
+
+export async function getServerConnections() {
+  const activeTests = await db.getActiveTests();
+
+  return activeTests.map(test => {
+    const processInfo = runningProcesses.get(test.test_id);
+    const elapsedSeconds = processInfo
+      ? Math.floor((Date.now() - processInfo.startTime.getTime()) / 1000)
+      : 0;
+    const totalSeconds = test.config?.duration || 0;
+    const progress = totalSeconds > 0
+      ? Math.min(100, Math.floor((elapsedSeconds / totalSeconds) * 100))
+      : 0;
+
+    return {
+      testId: test.test_id,
+      servers: test.servers,
+      testType: test.test_type,
+      startedAt: test.started_at,
+      duration: totalSeconds,
+      elapsedSeconds,
+      progress,
+      pid: test.pid,
+      config: test.config
+    };
+  });
 }

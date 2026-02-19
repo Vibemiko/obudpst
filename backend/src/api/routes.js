@@ -70,6 +70,15 @@ router.get('/server/status', async (req, res) => {
   }
 });
 
+router.get('/server/connections', async (req, res) => {
+  try {
+    const connections = await udpst.getServerConnections();
+    res.json({ success: true, connections });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message, code: 'INTERNAL_ERROR' });
+  }
+});
+
 router.post('/client/start', async (req, res) => {
   try {
     const params = {
@@ -82,8 +91,8 @@ router.post('/client/start', async (req, res) => {
       ipVersion: req.body.ipVersion || 'ipv4',
       jumboFrames: req.body.jumboFrames !== false,
       bandwidth: req.body.bandwidth || 0,
-      verbose: req.body.verbose || false,
-      jsonOutput: req.body.jsonOutput !== false
+      verbose: false,
+      jsonOutput: true
     };
 
     if (!params.testType || !['upstream', 'downstream'].includes(params.testType)) {

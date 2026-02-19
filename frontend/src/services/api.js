@@ -32,6 +32,7 @@ export const api = {
     }),
 
     getStatus: () => request('/server/status'),
+    getConnections: () => request('/server/connections'),
   },
 
   client: {
