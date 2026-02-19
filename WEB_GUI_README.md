@@ -956,15 +956,13 @@ Choose your deployment method:
 git clone https://<YOUR_TOKEN>@github.com/Vibemiko/obudpst.git
 cd obudpst
 
-# 2. Build OB-UDPST binary
-cmake .
-make
+# 2. First-time install (sets permissions, builds udpst binary, installs dependencies)
+bash install.sh
 
-# 3. Configure environment
-cp .env.example .env
-nano .env  # Add your Supabase credentials and logging preferences
+# 3. Configure environment (edit the .env created by install.sh)
+nano .env  # Add your Supabase credentials
 
-# 4. Run both services (logging is automatically configured)
+# 4. Run both services
 ./start-local.sh
 ```
 
@@ -1796,7 +1794,7 @@ The backend reads from the root `.env` file using a relative path. Both frontend
 
 For version history and changelog, see [RELEASE_NOTE.md](./RELEASE_NOTE.md).
 
-**Current Version:** v1.0.0 (2025-01-23)
+**Current Version:** v1.0.4 (2026-02-19)
 
 ## License
 

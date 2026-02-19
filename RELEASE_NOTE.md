@@ -2,6 +2,44 @@
 
 ## Version Log
 
+### v1.0.4 - 2026-02-19
+
+**Install Script, Confirm Dialogs, and Database Fix**
+
+#### Overview
+This release adds a first-time `install.sh` setup script, fixes the "Clear All Records" database error caused by a UUID type mismatch, and replaces all native browser `confirm()` dialogs with styled modal dialogs for a consistent user experience.
+
+#### Changes
+
+**install.sh - First-Time Setup Script**
+- Created `install.sh` in the project root for first-time installation
+- Script is executable (`chmod +x`) and handles the full setup sequence:
+  - Sets `chmod +x` on all `.sh` files in project root and `backend/`
+  - Copies `.env.example` to `.env` if no `.env` exists yet
+  - Detects existing `udpst` binary or attempts to build from source using `cmake` + `make`
+  - Falls back gracefully with clear instructions when build tools are unavailable
+  - Runs `backend/setup-logging.sh` to create log directories
+  - Installs backend, frontend, and root npm dependencies
+  - Prints a summary with next steps and a firewall reminder for the UDP ephemeral port range
+
+**Database Fix - Clear All Records**
+- Fixed `deleteAllTests()` in `backend/src/services/database.js`
+- Root cause: `.neq('id', 0)` fails with a Postgres type error because `id` is a UUID column and cannot be compared to an integer
+- Fix: replaced `.neq('id', 0)` with `.not('id', 'is', null)` on both `test_results` and `tests` tables
+- "Clear All" in Test History now works correctly without errors
+
+**Styled Confirm Dialogs**
+- Replaced native browser `confirm()` popup for single-test deletion with a styled modal dialog matching the existing "Clear All" dialog
+- The modal shows the test ID being deleted so the user knows exactly what will be removed
+- Both dialogs (single delete and clear all) now use the same consistent design: overlay backdrop, card panel, descriptive message, Cancel / Delete action buttons
+- Removed all `alert()` / `confirm()` browser API calls from `HistoryPage.jsx`
+
+#### Fixed Issues
+1. "Clear All Tests" button throwing a database error due to UUID vs integer type mismatch
+2. Single test delete using a plain browser popup instead of a styled in-app dialog
+
+---
+
 ### v1.0.3 - 2026-01-26
 
 **Test Management and Logging Features**

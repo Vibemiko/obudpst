@@ -12,6 +12,7 @@ export default function HistoryPage() {
   const [filter, setFilter] = useState('all');
   const [deleting, setDeleting] = useState(null);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   useEffect(() => {
     fetchTests();
@@ -48,13 +49,14 @@ export default function HistoryPage() {
     }
   }
 
-  async function handleDeleteTest(testId, e) {
+  function handleDeleteTest(testId, e) {
     e.stopPropagation();
+    setConfirmDeleteId(testId);
+  }
 
-    if (!confirm('Are you sure you want to delete this test?')) {
-      return;
-    }
-
+  async function confirmDeleteTest() {
+    const testId = confirmDeleteId;
+    setConfirmDeleteId(null);
     setDeleting(testId);
 
     try {
@@ -67,7 +69,6 @@ export default function HistoryPage() {
       await fetchTests();
     } catch (err) {
       console.error('Failed to delete test:', err);
-      alert('Failed to delete test: ' + err.message);
     } finally {
       setDeleting(null);
     }
@@ -137,6 +138,39 @@ export default function HistoryPage() {
                 onClick={handleClearAll}
               >
                 Delete All Tests
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Delete Test?
+            </h3>
+            <p className="text-gray-600 mb-1">
+              You are about to delete test:
+            </p>
+            <p className="text-sm font-mono text-gray-800 bg-gray-100 rounded px-2 py-1 mb-6 break-all">
+              {confirmDeleteId}
+            </p>
+            <p className="text-gray-600 mb-6 -mt-4 text-sm">
+              This will permanently remove the test record and all associated results.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="secondary"
+                onClick={() => setConfirmDeleteId(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={confirmDeleteTest}
+              >
+                Delete Test
               </Button>
             </div>
           </div>

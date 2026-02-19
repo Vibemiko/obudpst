@@ -200,14 +200,14 @@ export async function deleteAllTests() {
   const { error: resultsError } = await supabase
     .from('test_results')
     .delete()
-    .neq('id', 0);
+    .not('id', 'is', null);
 
   if (resultsError) throw resultsError;
 
   const { error: testsError } = await supabase
     .from('tests')
     .delete()
-    .neq('id', 0);
+    .not('id', 'is', null);
 
   if (testsError) throw testsError;
 
