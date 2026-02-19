@@ -73,6 +73,19 @@ export const api = {
     getInfo: () => request('/binary/info'),
   },
 
+  diagnostics: {
+    getSystem: () => request('/diagnostics/system'),
+    getConnections: () => request('/diagnostics/connections'),
+    runQuickTest: (params) => request('/diagnostics/quick-test', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+    runComplete: (params) => request('/diagnostics/complete', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+  },
+
   health: {
     checkServer: (host, port = 25000) => request('/health/check-server', {
       method: 'POST',

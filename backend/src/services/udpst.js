@@ -334,12 +334,13 @@ export async function getServerStatus() {
   };
 }
 
-function describeErrorStatus(code, raw, testType, hasValidData, intervalCount, expectedDuration) {
+function describeErrorStatus(code, raw, testType, hasValidData, intervalCount, expectedDuration, ipVersion) {
   const msg = raw?.ErrorMessage ? raw.ErrorMessage.replace(/^ERROR:\s*/i, '').trim() : null;
   const msg2 = raw?.ErrorMessage2 ? raw.ErrorMessage2.replace(/^WARNING:\s*/i, '').trim() : null;
   const msg2Lower = (msg2 || '').toLowerCase();
+  const isIPv6 = ipVersion === 'ipv6';
 
-  const is6SecondBug = intervalCount >= 5 && intervalCount <= 7 && expectedDuration > 10;
+  const is6SecondBug = !isIPv6 && intervalCount >= 5 && intervalCount <= 7 && expectedDuration > 10;
 
   if (code === 200 && testType === 'downstream' && hasValidData) {
     if (msg2Lower.includes('incoming traffic has completely stopped')) {
@@ -348,7 +349,7 @@ function describeErrorStatus(code, raw, testType, hasValidData, intervalCount, e
   }
 
   if (code === 200 && is6SecondBug) {
-    return `Test stopped after ${intervalCount} seconds despite requesting ${expectedDuration} seconds. This is a known bug in certain UDPST binary builds. The binary was compiled with a future build date (Feb 2026), indicating it may be a development/test version with bugs. Solution: Obtain a stable UDPST binary or recompile from official source with correct system time. The collected data from the ${intervalCount} successful intervals is still valid and shown below.`;
+    return `Test stopped after ${intervalCount} seconds despite requesting ${expectedDuration} seconds. This is a known bug in certain UDPST binary builds affecting IPv4 mode. Solution: Use IPv6 mode (which does not have this bug) or obtain a stable UDPST binary. The collected data from the ${intervalCount} successful intervals is still valid and shown below.`;
   }
 
   if (msg && msg2) return `${msg}. ${msg2}`;
@@ -359,12 +360,12 @@ function describeErrorStatus(code, raw, testType, hasValidData, intervalCount, e
     1: 'Test inconclusive — server could not determine IP-layer capacity.',
     2: 'Test inconclusive — server capacity undetermined. Ensure server is stable for the full test duration.',
     3: is6SecondBug
-      ? `Test collected ${intervalCount} seconds of valid data but then stopped unexpectedly. This is a known UDPST binary bug (build date Feb 2026 indicates development version). The server accepted the initial setup, but the binary terminated early due to a bug, not a network issue. Solution: Obtain a stable UDPST binary release.`
+      ? `Test collected ${intervalCount} seconds of valid data but then stopped unexpectedly. This is a known UDPST binary bug affecting IPv4 mode. Solution: Use IPv6 mode or obtain a stable UDPST binary release.`
       : 'Minimum required connections unavailable. The server accepted the setup request but test data never arrived — this is usually a firewall issue. Ensure the backend machine can receive UDP traffic from the server on ephemeral ports 32768-60999. On the server run: sudo ufw allow 32768:60999/udp',
     4: 'Protocol version mismatch between client and server.',
     5: 'Authentication error — check that both client and server use the same authentication key.',
     200: is6SecondBug
-      ? `Test collected ${intervalCount} seconds of data but stopped early (requested ${expectedDuration} seconds). This is a known bug in development UDPST binaries with future build dates. The collected data is valid.`
+      ? `Test collected ${intervalCount} seconds of data but stopped early (requested ${expectedDuration} seconds). This is a known bug in IPv4 mode of certain UDPST binary builds. The collected data is valid. Try IPv6 mode for full test duration.`
       : hasValidData
       ? 'Test completed with connection warnings but collected valid data.'
       : 'Test failed — minimum required connections unavailable. Verify the server is running, reachable on UDP port 25000, and that ephemeral UDP ports 32768-60999 are not blocked by a firewall between the backend and the server.'
@@ -509,7 +510,8 @@ export async function startClientTest(params) {
             errorStatus,
             errorMessage2,
             results,
-            params.testType
+            params.testType,
+            params.ipVersion
           );
 
           const errorDesc = describeErrorStatus(
@@ -518,7 +520,8 @@ export async function startClientTest(params) {
             params.testType,
             results.hasValidData,
             results.intervalCount,
-            params.duration
+            params.duration,
+            params.ipVersion
           );
 
           logger.info('Test completed with ErrorStatus', {

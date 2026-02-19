@@ -2,6 +2,82 @@
 
 ## Version Log
 
+### v1.0.8 - 2026-02-19
+
+**IPv6 Awareness, Remote Health Check, Parser Fixes, and DiagnosticsPage Repair**
+
+#### Overview
+This release fixes several critical issues across the health check system, JSON parser, error classification, frontend API integration, and IPv6 handling. The most significant changes are:
+
+1. **Health Check Remote Probing**: The health check was checking LOCAL ports instead of probing REMOTE servers. Since the UDPST server runs on a separate machine, local port checks always failed. The health check now probes the actual remote server using UDP datagrams and the UDPST binary.
+
+2. **Parser IPv4/IPv6 Data Extraction**: The JSON parser could not find test data nested under `Output.IncrementalResult` (the structure used by IPv6 test results). Additionally, BOM/EOM timestamp fallback logic was missing for tests without sub-interval arrays.
+
+3. **IPv6 vs IPv4 Error Classification**: The 6-second early termination bug only affects IPv4 tests. IPv6 tests complete all requested intervals successfully. Error classification and user-facing messages now correctly distinguish between IP versions and suggest IPv6 as a workaround for the IPv4 bug.
+
+4. **DiagnosticsPage API Calls**: The Diagnostics page used non-existent `api.get()` and `api.post()` methods. All calls have been rewritten to use the structured API service pattern.
+
+5. **ClientPage Partial Results**: Tests with `completed_partial` status were not displaying their results. The results panel now shows partial results with an orange warning banner.
+
+6. **Ping IPv6 Fallback**: The `ping6` binary does not exist on modern Debian. IPv6 ping now uses `ping -6` flag instead.
+
+#### Changes
+
+**Remote Health Check** (`backend/src/services/health-check.js`)
+- Replaced LOCAL-only port checking (`ss`, `netstat`, `lsof`) with REMOTE UDP probing
+- New `probeRemoteUDPPort()` function sends a UDP datagram and waits for response/ICMP error
+- New `probeWithBinary()` function uses the UDPST binary itself to validate server connectivity
+- New `probeWithDgram()` function uses Node.js dgram socket as fallback
+- Probing timeout of 5 seconds for binary probe, 3 seconds for dgram probe
+- Accurate detection of running UDPST servers on remote machines
+
+**Parser Fixes** (`backend/src/utils/parser.js`)
+- `resolveIntervals()`: Searches both top-level `IncrementalResult` and nested `Output.IncrementalResult`
+- All extract functions (`extractThroughput`, `extractPacketLoss`, `extractLatency`, `extractJitter`) now check nested `Output.*` and `summary.*` paths
+- `extractSubIntervalData()`: Falls back to BOM/EOM timestamps when no interval array exists
+- Falls back to `TestInterval` when neither intervals nor timestamps are available
+- `classifyErrorSeverity()`: Accepts `ipVersion` parameter, detects IPv4-only 6-second bug pattern
+- IPv4 6-second bug: `intervalCount >= 5 && intervalCount <= 7 && !isIPv6`
+- Returns specific WARNING severity with IPv4-specific message suggesting IPv6
+
+**Error Description IPv6 Awareness** (`backend/src/services/udpst.js`)
+- `describeErrorStatus()` accepts `ipVersion` as 7th parameter
+- `is6SecondBug` detection excludes IPv6: `!isIPv6 && intervalCount >= 5 && intervalCount <= 7 && expectedDuration > 10`
+- Updated all error messages to reference IPv4-specific bug and suggest IPv6 as alternative
+- Both call sites in exit handler now pass `params.ipVersion` to `classifyErrorSeverity()` and `describeErrorStatus()`
+
+**ClientPage Partial Results** (`frontend/src/pages/ClientPage.jsx`)
+- Added `completed_partial` status detection
+- Results panel now shows for `completed`, `completed_warnings`, and `completed_partial` statuses
+- Orange-themed warning banner displayed for partial results with the error message
+
+**DiagnosticsPage API Fix** (`frontend/src/pages/DiagnosticsPage.jsx`)
+- Added `diagnostics` section to `frontend/src/services/api.js` with four methods: `getSystem()`, `getConnections()`, `runQuickTest()`, `runComplete()`
+- Rewrote all five API functions to use correct structured API methods
+- Removed non-existent `api.get()`/`api.post()` calls
+- Removed `response.data.success` checks (the `request()` function returns data directly)
+
+**Ping IPv6 Fix** (`backend/src/services/health-check.js`)
+- Changed IPv6 ping from `ping6` (does not exist on modern Debian) to `ping -6`
+- Fallback chain: tries `ping -6` first, then `ping6` for older systems
+
+#### Fixed Issues
+1. Health check falsely reporting remote UDPST servers as unreachable (was checking local ports)
+2. Parser unable to extract data from IPv6 JSON structure (`Output.IncrementalResult`)
+3. IPv6 tests incorrectly flagged with "6-second bug" warning (bug only affects IPv4)
+4. Error messages not distinguishing between IPv4 and IPv6 test failures
+5. `completed_partial` test results not displayed in ClientPage
+6. DiagnosticsPage completely non-functional due to wrong API method calls
+7. IPv6 ping failing on modern Debian due to missing `ping6` binary
+
+#### Breaking Changes
+None. Fully backward compatible with existing test data.
+
+#### Migration Required
+No database migration required for this release.
+
+---
+
 ### v1.0.7 - 2026-02-19
 
 **Downstream Test Error Handling, Result Quality Assessment, and Health Check UDP Fix**

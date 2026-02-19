@@ -1,7 +1,10 @@
 import { spawn } from 'child_process';
+import { createSocket } from 'dgram';
+import { existsSync } from 'fs';
 import { logger } from '../utils/logger.js';
+import { config } from '../config.js';
 
-const CONTROL_PORT_TIMEOUT = 3000;
+const CONTROL_PORT_TIMEOUT = 4000;
 const PING_TIMEOUT = 2000;
 
 export async function checkServerReachability(host, port = 25000) {
@@ -30,13 +33,13 @@ export async function checkServerReachability(host, port = 25000) {
   }
 
   try {
-    result.controlPortOpen = await checkUDPPort(host, port);
+    result.controlPortOpen = await probeRemoteUDPPort(host, port);
     result.checks.push({
       name: 'UDP Port',
       passed: result.controlPortOpen,
       message: result.controlPortOpen
-        ? `UDP port ${port} is responding (UDPST server is running)`
-        : `UDP port ${port} is not responding (UDPST server may not be running)`
+        ? `UDP port ${port} is responding on ${host} (UDPST server is running)`
+        : `UDP port ${port} is not responding on ${host} (UDPST server may not be running)`
     });
   } catch (err) {
     result.checks.push({
@@ -54,7 +57,7 @@ export async function checkServerReachability(host, port = 25000) {
       issues.push('Host is not reachable on the network');
     }
     if (!result.controlPortOpen) {
-      issues.push(`Control port ${port} is not accessible`);
+      issues.push(`Control port ${port} is not accessible on remote host`);
     }
     result.error = issues.join('. ');
     result.recommendation = generateRecommendation(result);
@@ -74,12 +77,11 @@ export async function checkServerReachability(host, port = 25000) {
 function pingHost(host) {
   return new Promise((resolve) => {
     const isIPv6 = host.includes(':');
-    const pingCmd = isIPv6 ? 'ping6' : 'ping';
-    const args = process.platform === 'win32'
-      ? ['-n', '1', '-w', PING_TIMEOUT.toString(), host]
+    const args = isIPv6
+      ? ['-6', '-c', '1', '-W', Math.ceil(PING_TIMEOUT / 1000).toString(), host]
       : ['-c', '1', '-W', Math.ceil(PING_TIMEOUT / 1000).toString(), host];
 
-    const proc = spawn(pingCmd, args, {
+    const proc = spawn('ping', args, {
       stdio: 'pipe',
       timeout: PING_TIMEOUT + 500
     });
@@ -111,78 +113,123 @@ function pingHost(host) {
   });
 }
 
-function checkUDPPort(host, port) {
+async function probeRemoteUDPPort(host, port) {
+  const binaryProbe = await probeWithBinary(host, port);
+  if (binaryProbe !== null) {
+    return binaryProbe;
+  }
+
+  return probeWithDgram(host, port);
+}
+
+function probeWithBinary(host, port) {
   return new Promise((resolve) => {
-    const checkCommands = [
-      { cmd: 'ss', args: ['-ulpn'] },
-      { cmd: 'netstat', args: ['-ulpn'] },
-      { cmd: 'lsof', args: ['-i', `UDP:${port}`, '-sTCP:LISTEN'] }
+    const binaryPath = config.udpst.binaryPath;
+    if (!existsSync(binaryPath)) {
+      resolve(null);
+      return;
+    }
+
+    const isIPv6 = host.includes(':');
+    const args = [
+      isIPv6 ? '-6' : '-4',
+      '-d',
+      '-p', port.toString(),
+      '-t', '1',
+      '-f', 'json',
+      host
     ];
 
-    let commandTried = false;
-    let resolved = false;
+    const proc = spawn(binaryPath, args, {
+      stdio: 'pipe',
+      timeout: CONTROL_PORT_TIMEOUT
+    });
 
-    const tryNextCommand = (index) => {
-      if (resolved || index >= checkCommands.length) {
-        if (!resolved) {
-          resolved = true;
-          resolve(false);
+    let stdout = '';
+
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    const timeoutId = setTimeout(() => {
+      proc.kill();
+      resolve(null);
+    }, CONTROL_PORT_TIMEOUT);
+
+    proc.on('exit', (code) => {
+      clearTimeout(timeoutId);
+
+      if (stdout.includes('"ErrorStatus"') || stdout.includes('"IncrementalResult"')) {
+        const errorMatch = stdout.match(/"ErrorStatus"\s*:\s*(\d+)/);
+        if (errorMatch) {
+          const errorStatus = parseInt(errorMatch[1]);
+          resolve(errorStatus !== 4 && errorStatus !== 5);
+          return;
         }
+        resolve(true);
         return;
       }
 
-      const { cmd, args } = checkCommands[index];
+      resolve(code === 0);
+    });
 
-      const proc = spawn(cmd, args, {
-        stdio: 'pipe',
-        timeout: CONTROL_PORT_TIMEOUT
-      });
+    proc.on('error', () => {
+      clearTimeout(timeoutId);
+      resolve(null);
+    });
+  });
+}
 
-      let output = '';
+function probeWithDgram(host, port) {
+  return new Promise((resolve) => {
+    const isIPv6 = host.includes(':');
+    const socketType = isIPv6 ? 'udp6' : 'udp4';
 
-      proc.stdout?.on('data', (data) => {
-        output += data.toString();
-      });
+    let resolved = false;
+    let socket;
 
-      const timeoutId = setTimeout(() => {
-        if (!resolved) {
-          proc.kill();
-          tryNextCommand(index + 1);
-        }
-      }, CONTROL_PORT_TIMEOUT);
+    try {
+      socket = createSocket(socketType);
+    } catch (_) {
+      resolve(false);
+      return;
+    }
 
-      proc.on('exit', (code) => {
+    const timeoutId = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        try { socket.close(); } catch (_) {}
+        resolve(false);
+      }
+    }, CONTROL_PORT_TIMEOUT);
+
+    socket.on('error', () => {
+      if (!resolved) {
+        resolved = true;
         clearTimeout(timeoutId);
-        if (resolved) return;
+        try { socket.close(); } catch (_) {}
+        resolve(false);
+      }
+    });
 
-        if (code === 0 && output) {
-          const listening = output.split('\n').some(line => {
-            const lowerLine = line.toLowerCase();
-            return lowerLine.includes(`:${port}`) &&
-                   (lowerLine.includes('udp') || lowerLine.includes('listen'));
-          });
-
-          if (listening) {
-            resolved = true;
-            resolve(true);
-            return;
-          }
-        }
-
-        tryNextCommand(index + 1);
-      });
-
-      proc.on('error', () => {
+    socket.on('message', () => {
+      if (!resolved) {
+        resolved = true;
         clearTimeout(timeoutId);
-        if (!resolved) {
-          tryNextCommand(index + 1);
-        }
-      });
+        try { socket.close(); } catch (_) {}
+        resolve(true);
+      }
+    });
 
-      commandTried = true;
-    };
-
-    tryNextCommand(0);
+    const testPayload = Buffer.alloc(16, 0);
+    socket.send(testPayload, 0, testPayload.length, port, host, (err) => {
+      if (err && !resolved) {
+        resolved = true;
+        clearTimeout(timeoutId);
+        try { socket.close(); } catch (_) {}
+        resolve(false);
+      }
+    });
   });
 }
 

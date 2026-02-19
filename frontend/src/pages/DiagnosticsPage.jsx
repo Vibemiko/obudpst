@@ -24,10 +24,8 @@ export function DiagnosticsPage() {
 
   const loadBinaryInfo = async () => {
     try {
-      const response = await api.get('/binary/info');
-      if (response.data.success) {
-        setBinaryInfo(response.data);
-      }
+      const data = await api.binary.getInfo();
+      setBinaryInfo(data);
     } catch (error) {
       console.error('Failed to load binary info:', error);
     }
@@ -35,11 +33,9 @@ export function DiagnosticsPage() {
 
   const loadSystemConfig = async () => {
     try {
-      const response = await api.get('/diagnostics/system');
-      if (response.data.success) {
-        setSystemConfig(response.data.systemConfig);
-        setFirewall(response.data.firewall);
-      }
+      const data = await api.diagnostics.getSystem();
+      setSystemConfig(data.systemConfig);
+      setFirewall(data.firewall);
     } catch (error) {
       console.error('Failed to load system config:', error);
     }
@@ -47,33 +43,25 @@ export function DiagnosticsPage() {
 
   const loadConnectionTracking = async () => {
     try {
-      const response = await api.get('/diagnostics/connections');
-      if (response.data.success) {
-        setConnectionTracking(response.data);
-      }
+      const data = await api.diagnostics.getConnections();
+      setConnectionTracking(data);
     } catch (error) {
       console.error('Failed to load connection tracking:', error);
     }
   };
 
   const runQuickTest = async () => {
-    if (!targetServer.trim()) {
-      alert('Please enter a target server');
-      return;
-    }
+    if (!targetServer.trim()) return;
 
     setLoading(true);
     setQuickTestResult(null);
 
     try {
-      const response = await api.post('/diagnostics/quick-test', {
+      const data = await api.diagnostics.runQuickTest({
         server: targetServer.trim(),
         port: 25000
       });
-
-      if (response.data.success) {
-        setQuickTestResult(response.data.test);
-      }
+      setQuickTestResult(data.test);
     } catch (error) {
       console.error('Quick test failed:', error);
       setQuickTestResult({
@@ -86,22 +74,16 @@ export function DiagnosticsPage() {
   };
 
   const runCompleteDiagnostics = async () => {
-    if (!targetServer.trim()) {
-      alert('Please enter a target server');
-      return;
-    }
+    if (!targetServer.trim()) return;
 
     setLoading(true);
     setCompleteDiagnostics(null);
 
     try {
-      const response = await api.post('/diagnostics/complete', {
+      const data = await api.diagnostics.runComplete({
         server: targetServer.trim()
       });
-
-      if (response.data.success) {
-        setCompleteDiagnostics(response.data.diagnostics);
-      }
+      setCompleteDiagnostics(data.diagnostics);
     } catch (error) {
       console.error('Complete diagnostics failed:', error);
       setCompleteDiagnostics({

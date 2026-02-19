@@ -12,11 +12,12 @@ export function parseUdpstOutput(output) {
     throw new Error(`Failed to parse JSON: ${error.message}`);
   }
 
-  const throughput = extractThroughput(jsonData);
-  const packetLoss = extractPacketLoss(jsonData);
-  const latency = extractLatency(jsonData);
-  const jitter = extractJitter(jsonData);
-  const subIntervalData = extractSubIntervalData(jsonData);
+  const intervals = resolveIntervals(jsonData);
+  const throughput = extractThroughput(jsonData, intervals);
+  const packetLoss = extractPacketLoss(jsonData, intervals);
+  const latency = extractLatency(jsonData, intervals);
+  const jitter = extractJitter(jsonData, intervals);
+  const subIntervalData = extractSubIntervalData(jsonData, intervals);
 
   return {
     throughput,
@@ -30,7 +31,19 @@ export function parseUdpstOutput(output) {
   };
 }
 
-function extractThroughput(json) {
+function resolveIntervals(json) {
+  if (json.IncrementalResult && Array.isArray(json.IncrementalResult)) {
+    return json.IncrementalResult;
+  }
+
+  if (json.Output?.IncrementalResult && Array.isArray(json.Output.IncrementalResult)) {
+    return json.Output.IncrementalResult;
+  }
+
+  return [];
+}
+
+function extractThroughput(json, intervals) {
   if (json.IPLayerCapacity) {
     return parseFloat(json.IPLayerCapacity) || 0;
   }
@@ -39,14 +52,27 @@ function extractThroughput(json) {
     return parseFloat(json.AvgRate) || 0;
   }
 
+  if (json.Output?.IPLayerCapacity) {
+    return parseFloat(json.Output.IPLayerCapacity) || 0;
+  }
+
   if (json.summary?.IPLayerCapacity) {
     return parseFloat(json.summary.IPLayerCapacity) || 0;
+  }
+
+  if (intervals.length > 0) {
+    const values = intervals
+      .map(i => parseFloat(i.IPLayerCapacity || i.AvgRate || 0))
+      .filter(v => v > 0);
+    if (values.length > 0) {
+      return values.reduce((a, b) => a + b, 0) / values.length;
+    }
   }
 
   return 0;
 }
 
-function extractPacketLoss(json) {
+function extractPacketLoss(json, intervals) {
   if (json.LossRatio !== undefined) {
     return parseFloat(json.LossRatio) * 100 || 0;
   }
@@ -56,14 +82,27 @@ function extractPacketLoss(json) {
     return Math.max(0, 100 - delivered);
   }
 
+  if (json.Output?.LossRatio !== undefined) {
+    return parseFloat(json.Output.LossRatio) * 100 || 0;
+  }
+
   if (json.summary?.LossRatio !== undefined) {
     return parseFloat(json.summary.LossRatio) * 100 || 0;
+  }
+
+  if (intervals.length > 0) {
+    const values = intervals
+      .map(i => parseFloat(i.LossRatio || 0))
+      .filter(v => !isNaN(v));
+    if (values.length > 0) {
+      return (values.reduce((a, b) => a + b, 0) / values.length) * 100;
+    }
   }
 
   return 0;
 }
 
-function extractLatency(json) {
+function extractLatency(json, intervals) {
   if (json.MinDelay !== undefined) {
     return parseFloat(json.MinDelay) || 0;
   }
@@ -72,14 +111,27 @@ function extractLatency(json) {
     return parseFloat(json.RTTMin) || 0;
   }
 
+  if (json.Output?.MinDelay !== undefined) {
+    return parseFloat(json.Output.MinDelay) || 0;
+  }
+
   if (json.summary?.MinDelay !== undefined) {
     return parseFloat(json.summary.MinDelay) || 0;
+  }
+
+  if (intervals.length > 0) {
+    const values = intervals
+      .map(i => parseFloat(i.MinDelay || i.RTTMin || 0))
+      .filter(v => v > 0);
+    if (values.length > 0) {
+      return Math.min(...values);
+    }
   }
 
   return 0;
 }
 
-function extractJitter(json) {
+function extractJitter(json, intervals) {
   if (json.PDV !== undefined) {
     return parseFloat(json.PDV) || 0;
   }
@@ -90,20 +142,42 @@ function extractJitter(json) {
     return maxDelay - minDelay;
   }
 
+  if (json.Output?.PDV !== undefined) {
+    return parseFloat(json.Output.PDV) || 0;
+  }
+
   if (json.summary?.PDV !== undefined) {
     return parseFloat(json.summary.PDV) || 0;
+  }
+
+  if (intervals.length > 0) {
+    const values = intervals
+      .map(i => parseFloat(i.PDV || 0))
+      .filter(v => v > 0);
+    if (values.length > 0) {
+      return values.reduce((a, b) => a + b, 0) / values.length;
+    }
   }
 
   return 0;
 }
 
-function extractSubIntervalData(json) {
-  let intervalCount = 0;
-  let hasData = false;
+function extractSubIntervalData(json, intervals) {
+  let intervalCount = intervals.length;
+  let hasData = intervalCount > 0;
 
-  if (json.IncrementalResult && Array.isArray(json.IncrementalResult)) {
-    intervalCount = json.IncrementalResult.length;
-    hasData = intervalCount > 0;
+  if (!hasData) {
+    const bomTime = json.BOMTime || json.Output?.BOMTime;
+    const eomTime = json.EOMTime || json.Output?.EOMTime;
+
+    if (bomTime && eomTime) {
+      const bom = new Date(bomTime).getTime();
+      const eom = new Date(eomTime).getTime();
+      if (!isNaN(bom) && !isNaN(eom) && eom > bom) {
+        intervalCount = Math.floor((eom - bom) / 1000);
+        hasData = intervalCount > 0;
+      }
+    }
   }
 
   if (!hasData && json.TestInterval !== undefined) {
@@ -114,7 +188,7 @@ function extractSubIntervalData(json) {
     }
   }
 
-  const expectedDuration = json.TestIntTime || json.TestInterval || 0;
+  const expectedDuration = json.TestIntTime || json.TestInterval || json.Input?.TestIntTime || 0;
   const completionPercentage = expectedDuration > 0 && intervalCount > 0
     ? Math.min(100, (intervalCount / expectedDuration) * 100)
     : 0;
@@ -187,9 +261,12 @@ export function assessResultQuality(results, expectedDuration) {
   };
 }
 
-export function classifyErrorSeverity(errorStatus, errorMessage2, results, testType) {
+export function classifyErrorSeverity(errorStatus, errorMessage2, results, testType, ipVersion) {
   const msg2Lower = (errorMessage2 || '').toLowerCase();
   const hasValidData = results?.hasValidData || false;
+  const intervalCount = results?.intervalCount || 0;
+  const isIPv6 = ipVersion === 'ipv6';
+  const is6SecondBug = !isIPv6 && intervalCount >= 5 && intervalCount <= 7;
 
   if (errorStatus === 200 && testType === 'downstream' && hasValidData) {
     if (msg2Lower.includes('incoming traffic has completely stopped')) {
@@ -216,6 +293,13 @@ export function classifyErrorSeverity(errorStatus, errorMessage2, results, testT
   }
 
   if (errorStatus === 3 || errorStatus === 200) {
+    if (hasValidData && is6SecondBug) {
+      return {
+        severity: 'WARNING',
+        reason: 'Known IPv4 early termination bug',
+        message: `Test collected ${intervalCount} intervals of valid data before the known IPv4 binary bug caused early termination. Try IPv6 mode for full test duration.`
+      };
+    }
     if (hasValidData) {
       return {
         severity: 'WARNING',

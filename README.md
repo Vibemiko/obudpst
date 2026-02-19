@@ -34,18 +34,21 @@ capacity between them. The load traffic is only sent in one direction at a
 time, and status feedback messages are sent periodically in the opposite
 direction.
 
-## ⚠️ Critical Notice: Binary Bug Warning
+## Critical Notice: Binary Bug Warning (IPv4 Only)
 
-If you experience tests that consistently fail after **exactly 6 seconds** (6 intervals) regardless of requested duration, your UDPST binary has a known bug. This issue is identified by:
+If you experience **IPv4** tests that consistently fail after **exactly 6 seconds** (6 intervals) regardless of requested duration, your UDPST binary has a known bug. This issue is identified by:
 
 - Build date in the future (e.g., "Feb 2026" when current year is 2024/2025)
 - Tests stop after collecting exactly 6 intervals of valid data
 - Error "Minimum required connections unavailable" despite correct network configuration
 - Identical behavior in both CLI and Web GUI
+- **IPv6 tests are NOT affected** and complete all requested intervals successfully
+
+**Workaround**: Use IPv6 mode for full test duration. The Web GUI supports both IPv4 and IPv6 test modes.
 
 **Solution**: Obtain a stable UDPST binary with a past build date and stable version number.
 
-📖 **See [TROUBLESHOOTING_UDPST_BINARY.md](./TROUBLESHOOTING_UDPST_BINARY.md) for complete diagnosis and solutions.**
+See [TROUBLESHOOTING_UDPST_BINARY.md](./TROUBLESHOOTING_UDPST_BINARY.md) for complete diagnosis and solutions.
 
 For upstream tests, the feedback messages from the server(s) instruct the client
 on how it should adjust its transmission rate based on the presence or absence
@@ -855,15 +858,15 @@ $ cmake -D SUPP_INVPDU_WARN=ON .
 
 For the complete version history of the Web GUI, including changes, fixes, and new features, please refer to [RELEASE_NOTE.md](./RELEASE_NOTE.md).
 
-**Current Web GUI Version:** v1.0.7 (2026-02-19)
+**Current Web GUI Version:** v1.0.8 (2026-02-19)
 
-**Recent Changes:**
-- Fixed downstream test false failure issue
-- Implemented intelligent error classification system
-- Enhanced result quality assessment
-- Added completed_warnings status for tests that succeed with non-critical warnings
-- Improved user feedback with amber badges and explanatory messages
-- Changed default connection count to 2 for better testing experience
+**Recent Changes (v1.0.8):**
+- Fixed health check to probe remote UDPST servers instead of checking local ports
+- Fixed JSON parser for IPv6 test output (nested `Output.IncrementalResult` structure)
+- Added IPv6 awareness to error classification (6-second bug is IPv4-only)
+- Fixed DiagnosticsPage API calls (was using non-existent methods)
+- Fixed ClientPage to display `completed_partial` test results
+- Fixed IPv6 ping to use `ping -6` on modern Debian
 
 See [DOWNSTREAM_TEST_BEHAVIOR.md](./DOWNSTREAM_TEST_BEHAVIOR.md) for detailed information about downstream test completion behavior.
 

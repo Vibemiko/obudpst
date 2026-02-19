@@ -145,7 +145,8 @@ export default function ClientPage() {
 
   const testFailed = testResults?.status === 'failed' || (testResults?.errorMessage && !testResults?.results);
   const testCompletedWithWarnings = testResults?.status === 'completed_warnings';
-  const showResults = testResults?.results && (testResults?.status === 'completed' || testCompletedWithWarnings);
+  const testCompletedPartial = testResults?.status === 'completed_partial';
+  const showResults = testResults?.results && (testResults?.status === 'completed' || testCompletedWithWarnings || testCompletedPartial);
 
   return (
     <div className="space-y-6">
@@ -372,6 +373,18 @@ export default function ClientPage() {
                           Note: Connection warnings after downstream test completion are normal behavior and do not indicate a problem.
                         </p>
                       )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {testCompletedPartial && testResults?.errorMessage && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle size={18} className="text-orange-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-orange-900 mb-1">Partial Results Collected</p>
+                      <p className="text-sm text-orange-800">{testResults.errorMessage}</p>
                     </div>
                   </div>
                 </div>
