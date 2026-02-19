@@ -103,6 +103,12 @@ export async function startServer(params) {
     args.push('-a', params.authKey);
   }
 
+  if (params.ipVersion === 'ipv6') {
+    args.push('-6');
+  } else {
+    args.push('-4');
+  }
+
   if (params.verbose) {
     args.push('-v');
   }
@@ -359,7 +365,7 @@ export async function startClientTest(params) {
           logger.warn('Test completed with ErrorStatus', { testId, errorStatus, exitCode: code });
           await db.saveTestResults(testId, results);
           await db.updateTest(testId, {
-            status: 'completed',
+            status: 'failed',
             error_message: errorDesc,
             completed_at: completedAt
           });

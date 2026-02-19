@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Play, StopCircle, Download, TrendingUp, TrendingDown } from 'lucide-react';
+import { Play, StopCircle, Download, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import Select from '../components/Select';
 import StatusBadge from '../components/StatusBadge';
 import { api } from '../services/api';
+import { validateIPList, validateSingleIP } from '../utils/validation';
 
 export default function ClientPage() {
   const [config, setConfig] = useState({
     testType: 'downstream',
-    servers: '192.168.1.100',
+    servers: '',
     port: 25000,
     duration: 10,
     connections: 1,
@@ -25,6 +26,9 @@ export default function ClientPage() {
   const [testResults, setTestResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const [serversError, setServersError] = useState(null);
+  const [interfaceError, setInterfaceError] = useState(null);
 
   useEffect(() => {
     if (currentTest?.testId && currentTest?.status === 'running') {
@@ -48,6 +52,27 @@ export default function ClientPage() {
       console.error('Failed to poll test status:', err);
     }
   }
+
+  function handleIPVersionChange(e) {
+    const newVersion = e.target.value;
+    setConfig({ ...config, ipVersion: newVersion, servers: '', interface: '' });
+    setServersError(null);
+    setInterfaceError(null);
+  }
+
+  function handleServersChange(e) {
+    const val = e.target.value;
+    setConfig({ ...config, servers: val });
+    setServersError(validateIPList(val, config.ipVersion));
+  }
+
+  function handleInterfaceChange(e) {
+    const val = e.target.value;
+    setConfig({ ...config, interface: val });
+    setInterfaceError(validateSingleIP(val, config.ipVersion));
+  }
+
+  const isStartDisabled = loading || !!serversError || !!interfaceError || !config.servers.trim();
 
   async function handleStart() {
     setLoading(true);
@@ -98,6 +123,17 @@ export default function ClientPage() {
     URL.revokeObjectURL(url);
   }
 
+  const isRunning = currentTest?.status === 'running';
+  const ipVersionLabel = config.ipVersion === 'ipv6' ? 'IPv6' : 'IPv4';
+  const serversPlaceholder = config.ipVersion === 'ipv6'
+    ? 'e.g. 2001:db8::1 or multiple: 2001:db8::1, 2001:db8::2'
+    : 'e.g. 192.168.1.100 or multiple: 192.168.1.100, 192.168.1.101';
+  const interfacePlaceholder = config.ipVersion === 'ipv6'
+    ? 'Optional (e.g. ::1)'
+    : 'Optional (e.g. 192.168.1.10)';
+
+  const testFailed = testResults?.status === 'failed' || (testResults?.errorMessage && !testResults?.results);
+
   return (
     <div className="space-y-6">
       <div>
@@ -120,21 +156,37 @@ export default function ClientPage() {
               label="Test Type"
               value={config.testType}
               onChange={(e) => setConfig({ ...config, testType: e.target.value })}
-              disabled={currentTest?.status === 'running'}
+              disabled={isRunning}
               options={[
                 { value: 'upstream', label: 'Upstream' },
                 { value: 'downstream', label: 'Downstream' }
               ]}
             />
 
-            <Input
-              label="Server Addresses"
-              value={config.servers}
-              onChange={(e) => setConfig({ ...config, servers: e.target.value })}
-              placeholder="192.168.1.100 or multiple: 192.168.1.100, 192.168.1.101"
-              required
-              disabled={currentTest?.status === 'running'}
+            <Select
+              label="IP Version"
+              value={config.ipVersion}
+              onChange={handleIPVersionChange}
+              disabled={isRunning}
+              options={[
+                { value: 'ipv4', label: 'IPv4' },
+                { value: 'ipv6', label: 'IPv6' }
+              ]}
             />
+
+            <div>
+              <Input
+                label={`Server ${ipVersionLabel} Addresses`}
+                value={config.servers}
+                onChange={handleServersChange}
+                placeholder={serversPlaceholder}
+                required
+                disabled={isRunning}
+              />
+              {serversError && (
+                <p className="mt-1 text-xs text-red-600">{serversError}</p>
+              )}
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <Input
@@ -144,7 +196,7 @@ export default function ClientPage() {
                 onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) })}
                 min={1}
                 max={65535}
-                disabled={currentTest?.status === 'running'}
+                disabled={isRunning}
               />
 
               <Input
@@ -154,7 +206,7 @@ export default function ClientPage() {
                 onChange={(e) => setConfig({ ...config, duration: parseInt(e.target.value) })}
                 min={5}
                 max={3600}
-                disabled={currentTest?.status === 'running'}
+                disabled={isRunning}
               />
             </div>
 
@@ -166,7 +218,7 @@ export default function ClientPage() {
                 onChange={(e) => setConfig({ ...config, connections: parseInt(e.target.value) })}
                 min={1}
                 max={24}
-                disabled={currentTest?.status === 'running'}
+                disabled={isRunning}
               />
 
               <Input
@@ -175,20 +227,22 @@ export default function ClientPage() {
                 value={config.bandwidth}
                 onChange={(e) => setConfig({ ...config, bandwidth: parseInt(e.target.value) })}
                 min={0}
-                disabled={currentTest?.status === 'running'}
+                disabled={isRunning}
               />
             </div>
 
-            <Select
-              label="IP Version"
-              value={config.ipVersion}
-              onChange={(e) => setConfig({ ...config, ipVersion: e.target.value })}
-              disabled={currentTest?.status === 'running'}
-              options={[
-                { value: 'ipv4', label: 'IPv4' },
-                { value: 'ipv6', label: 'IPv6' }
-              ]}
-            />
+            <div>
+              <Input
+                label={`Interface ${ipVersionLabel} Address`}
+                value={config.interface}
+                onChange={handleInterfaceChange}
+                placeholder={interfacePlaceholder}
+                disabled={isRunning}
+              />
+              {interfaceError && (
+                <p className="mt-1 text-xs text-red-600">{interfaceError}</p>
+              )}
+            </div>
 
             <div className="flex items-center space-x-4">
               <label className="flex items-center">
@@ -196,7 +250,7 @@ export default function ClientPage() {
                   type="checkbox"
                   checked={config.jumboFrames}
                   onChange={(e) => setConfig({ ...config, jumboFrames: e.target.checked })}
-                  disabled={currentTest?.status === 'running'}
+                  disabled={isRunning}
                   className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                 />
                 <span className="ml-2 text-sm text-gray-700">Enable jumbo frames</span>
@@ -207,7 +261,7 @@ export default function ClientPage() {
                   type="checkbox"
                   checked={config.verbose}
                   onChange={(e) => setConfig({ ...config, verbose: e.target.checked })}
-                  disabled={currentTest?.status === 'running'}
+                  disabled={isRunning}
                   className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                 />
                 <span className="ml-2 text-sm text-gray-700">Verbose output</span>
@@ -215,7 +269,7 @@ export default function ClientPage() {
             </div>
 
             <div className="flex gap-2 pt-2">
-              {currentTest?.status === 'running' ? (
+              {isRunning ? (
                 <Button
                   variant="danger"
                   onClick={handleStop}
@@ -228,7 +282,7 @@ export default function ClientPage() {
                 <Button
                   variant="primary"
                   onClick={handleStart}
-                  disabled={loading}
+                  disabled={isStartDisabled}
                   className="flex-1"
                 >
                   <Play size={20} className="inline mr-2" />
@@ -252,7 +306,7 @@ export default function ClientPage() {
                 <StatusBadge status={currentTest.status} />
               </div>
 
-              {currentTest.status === 'running' && (
+              {isRunning && (
                 <>
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-gray-700">Progress</span>
@@ -267,7 +321,16 @@ export default function ClientPage() {
                 </>
               )}
 
-              {testResults?.errorMessage && (
+              {testFailed && (
+                <div className="bg-red-50 border border-red-200 rounded-md p-3 flex items-start gap-2">
+                  <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-700">
+                    {testResults.errorMessage || 'Test failed. Check server connectivity and configuration.'}
+                  </p>
+                </div>
+              )}
+
+              {testResults?.errorMessage && !testFailed && (
                 <div className="bg-amber-50 border border-amber-200 rounded-md p-3">
                   <p className="text-sm text-amber-800">{testResults.errorMessage}</p>
                 </div>

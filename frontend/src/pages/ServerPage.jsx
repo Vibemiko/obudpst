@@ -3,7 +3,9 @@ import { Power, PowerOff, CheckCircle, XCircle, Wifi, Clock, ArrowDown, ArrowUp 
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
+import Select from '../components/Select';
 import { api } from '../services/api';
+import { validateSingleIP } from '../utils/validation';
 
 export default function ServerPage() {
   const [serverStatus, setServerStatus] = useState(null);
@@ -13,11 +15,14 @@ export default function ServerPage() {
 
   const [config, setConfig] = useState({
     port: 25000,
+    ipVersion: 'ipv4',
     interface: '',
     daemon: false,
     authKey: '',
     verbose: false
   });
+
+  const [interfaceError, setInterfaceError] = useState(null);
 
   useEffect(() => {
     fetchAll();
@@ -37,6 +42,19 @@ export default function ServerPage() {
       console.error('Failed to fetch server status:', err);
     }
   }
+
+  function handleIPVersionChange(e) {
+    setConfig({ ...config, ipVersion: e.target.value, interface: '' });
+    setInterfaceError(null);
+  }
+
+  function handleInterfaceChange(e) {
+    const val = e.target.value;
+    setConfig({ ...config, interface: val });
+    setInterfaceError(validateSingleIP(val, config.ipVersion));
+  }
+
+  const isStartDisabled = loading || !!interfaceError;
 
   async function handleStart() {
     setLoading(true);
@@ -63,6 +81,11 @@ export default function ServerPage() {
       setLoading(false);
     }
   }
+
+  const ipVersionLabel = config.ipVersion === 'ipv6' ? 'IPv6' : 'IPv4';
+  const interfacePlaceholder = config.ipVersion === 'ipv6'
+    ? 'Leave empty for all interfaces (e.g. ::1)'
+    : 'Leave empty for all interfaces (e.g. 192.168.1.1)';
 
   return (
     <div className="space-y-6">
@@ -122,6 +145,13 @@ export default function ServerPage() {
                 <StatusRow label="Port">
                   <span className="text-sm text-gray-900">{serverStatus.config?.port || 25000}</span>
                 </StatusRow>
+                {serverStatus.config?.ipVersion && (
+                  <StatusRow label="IP Version">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {serverStatus.config.ipVersion === 'ipv6' ? 'IPv6' : 'IPv4'}
+                    </span>
+                  </StatusRow>
+                )}
                 {serverStatus.config?.interface && (
                   <StatusRow label="Interface">
                     <span className="text-sm text-gray-900">{serverStatus.config.interface}</span>
@@ -159,13 +189,31 @@ export default function ServerPage() {
               max={65535}
               disabled={serverStatus?.running}
             />
-            <Input
-              label="Interface IP Address"
-              value={config.interface}
-              onChange={(e) => setConfig({ ...config, interface: e.target.value })}
-              placeholder="Leave empty for all interfaces"
+
+            <Select
+              label="IP Version"
+              value={config.ipVersion}
+              onChange={handleIPVersionChange}
               disabled={serverStatus?.running}
+              options={[
+                { value: 'ipv4', label: 'IPv4' },
+                { value: 'ipv6', label: 'IPv6' }
+              ]}
             />
+
+            <div>
+              <Input
+                label={`Interface ${ipVersionLabel} Address`}
+                value={config.interface}
+                onChange={handleInterfaceChange}
+                placeholder={interfacePlaceholder}
+                disabled={serverStatus?.running}
+              />
+              {interfaceError && (
+                <p className="mt-1 text-xs text-red-600">{interfaceError}</p>
+              )}
+            </div>
+
             <Input
               label="Authentication Key"
               value={config.authKey}
@@ -173,6 +221,7 @@ export default function ServerPage() {
               placeholder="Optional"
               disabled={serverStatus?.running}
             />
+
             <div className="flex items-center space-x-4">
               <label className="flex items-center">
                 <input
@@ -195,8 +244,14 @@ export default function ServerPage() {
                 <span className="ml-2 text-sm text-gray-700">Verbose output</span>
               </label>
             </div>
+
             {!serverStatus?.running && (
-              <Button variant="primary" onClick={handleStart} disabled={loading} className="w-full">
+              <Button
+                variant="primary"
+                onClick={handleStart}
+                disabled={isStartDisabled}
+                className="w-full"
+              >
                 <Power size={18} className="inline mr-2" />
                 Start Server
               </Button>
