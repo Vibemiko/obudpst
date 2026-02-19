@@ -32,19 +32,19 @@ export async function checkServerReachability(host, port = 25000) {
   }
 
   try {
-    result.controlPortOpen = await checkTCPPort(host, port);
+    result.controlPortOpen = await checkUDPPort(host, port);
     result.checks.push({
-      name: 'Control Port',
+      name: 'UDP Port',
       passed: result.controlPortOpen,
       message: result.controlPortOpen
-        ? `Port ${port} is open and accepting connections`
-        : `Port ${port} is closed or not accepting connections`
+        ? `UDP port ${port} is responding (UDPST server is running)`
+        : `UDP port ${port} is not responding (UDPST server may not be running)`
     });
   } catch (err) {
     result.checks.push({
-      name: 'Control Port',
+      name: 'UDP Port',
       passed: false,
-      message: `Port check failed: ${err.message}`
+      message: `UDP port check failed: ${err.message}`
     });
   }
 
@@ -113,54 +113,58 @@ function pingHost(host) {
   });
 }
 
-function checkTCPPort(host, port) {
+function checkUDPPort(host, port) {
   return new Promise((resolve) => {
-    const socket = new net.Socket();
+    const socket = dgram.createSocket('udp4');
     let resolved = false;
 
     const timeoutId = setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        socket.destroy();
+        socket.close();
         resolve(false);
       }
     }, CONTROL_PORT_TIMEOUT);
 
-    socket.setTimeout(CONTROL_PORT_TIMEOUT);
-
-    socket.on('connect', () => {
+    socket.on('message', () => {
       if (!resolved) {
         resolved = true;
         clearTimeout(timeoutId);
-        socket.destroy();
+        socket.close();
         resolve(true);
       }
     });
 
-    socket.on('timeout', () => {
+    socket.on('error', (err) => {
       if (!resolved) {
         resolved = true;
         clearTimeout(timeoutId);
-        socket.destroy();
-        resolve(false);
-      }
-    });
-
-    socket.on('error', () => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeoutId);
-        socket.destroy();
-        resolve(false);
+        socket.close();
+        if (err.code === 'ECONNREFUSED') {
+          resolve(false);
+        } else {
+          resolve(false);
+        }
       }
     });
 
     try {
-      socket.connect(port, host);
+      const testMessage = Buffer.from('UDPST_HEALTH_CHECK');
+      socket.send(testMessage, port, host, (err) => {
+        if (err) {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeoutId);
+            socket.close();
+            resolve(false);
+          }
+        }
+      });
     } catch (err) {
       if (!resolved) {
         resolved = true;
         clearTimeout(timeoutId);
+        socket.close();
         resolve(false);
       }
     }
@@ -180,10 +184,10 @@ function generateRecommendation(result) {
 
   if (!result.controlPortOpen) {
     recommendations.push(
-      `Port ${result.port} is not accessible on ${result.host}. ` +
+      `UDP port ${result.port} is not responding on ${result.host}. ` +
       'Ensure the UDPST server is running on that machine. ' +
       `Start the server with: udpst -4 -x ${result.host} (for IPv4) or udpst -6 -x ${result.host} (for IPv6). ` +
-      `Also check firewall rules to allow incoming connections on port ${result.port}.`
+      `Also check firewall rules to allow incoming UDP traffic on port ${result.port}.`
     );
   }
 

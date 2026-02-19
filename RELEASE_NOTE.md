@@ -4,12 +4,16 @@
 
 ### v1.0.7 - 2026-02-19
 
-**Downstream Test Error Handling and Result Quality Assessment**
+**Downstream Test Error Handling, Result Quality Assessment, and Health Check UDP Fix**
 
 #### Overview
-This release fixes a critical issue where all downstream tests were incorrectly marked as "failed" despite successfully collecting valid data. The problem occurred because UDPST reports ErrorStatus 200 ("connection unavailable") after downstream tests complete, even when the test was successful. This is normal UDPST behavior, not an actual failure.
+This release fixes two critical issues:
 
-The solution implements intelligent error classification that distinguishes between fatal errors, completion warnings, and expected behavior based on test type, data quality, and error context.
+1. **Downstream Test Classification**: All downstream tests were incorrectly marked as "failed" despite successfully collecting valid data. The problem occurred because UDPST reports ErrorStatus 200 ("connection unavailable") after downstream tests complete, even when the test was successful. This is normal UDPST behavior, not an actual failure.
+
+2. **Health Check Protocol**: The health check was using TCP to test a UDP service, always reporting port 25000 as "closed" even when the UDPST server was running and processing tests successfully.
+
+The solution implements intelligent error classification that distinguishes between fatal errors, completion warnings, and expected behavior based on test type, data quality, and error context. Additionally, the health check now uses UDP protocol for accurate service detection.
 
 #### Changes
 
@@ -49,6 +53,15 @@ The solution implements intelligent error classification that distinguishes betw
 - Special note clarifies connection warnings are normal for downstream tests
 - Results now display for both completed and completed_warnings tests
 
+**Health Check UDP Fix** (`backend/src/services/health-check.js`)
+- Replaced TCP connectivity test with UDP test (UDPST uses UDP protocol)
+- `checkTCPPort()` → `checkUDPPort()` using dgram socket
+- Sends test message and waits for response or timeout
+- Updated check name from "Control Port" to "UDP Port"
+- Improved messages: "UDP port is responding (UDPST server is running)"
+- Updated recommendations to mention UDP firewall rules specifically
+- Eliminates false negatives where server was running but health check reported port closed
+
 **Documentation**
 - New comprehensive guide: `DOWNSTREAM_TEST_BEHAVIOR.md`
   - Explains UDPST downstream vs upstream termination behavior
@@ -56,7 +69,14 @@ The solution implements intelligent error classification that distinguishes betw
   - Usage guidelines for users and developers
   - Technical implementation details and testing procedures
   - Troubleshooting guide with common scenarios
+- New troubleshooting guide: `TROUBLESHOOTING.md`
+  - Common issues and solutions
+  - Health check TCP vs UDP explanation
+  - Downstream test warning clarification
+  - Diagnostic commands and best practices
+  - Version-specific notes
 - `IMPLEMENTATION_SUMMARY_v1.0.7.md`: Complete technical implementation details
+- `HEALTH_CHECK_FIX_SUMMARY.md`: Health check UDP fix documentation
 - Updated README.md with version history section
 
 #### Technical Details
@@ -84,6 +104,8 @@ ErrorStatus | Has Data | Quality         | Test Type   | Final Status
 4. No distinction between completion warnings and true failures
 5. Connection count flag not included for single connection tests
 6. No explanation of expected downstream test behavior
+7. Health check using TCP on UDP port (always reported "port closed")
+8. Misleading error messages suggesting server is down when it's actually running
 
 #### Breaking Changes
 None. Fully backward compatible with existing test data.
