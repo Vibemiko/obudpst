@@ -2,6 +2,45 @@
 
 ## Version Log
 
+### v1.0.5 - 2026-02-19
+
+**Diagnostics Panel, Error Clarity, and Command Visibility**
+
+#### Overview
+This release improves troubleshooting of failed client tests by surfacing the exact command executed in the UI, providing actionable firewall guidance in error messages, adding command-line logging to the backend, and removing the verbose flag that was corrupting JSON output.
+
+#### Changes
+
+**Client Test UI — Diagnostics Panel**
+- Added a "Command Run" panel to the Test Status & Results card that appears after every test (success or failure)
+- Shows the exact `udpst` command that was executed by the backend, in a monospace code block
+- Copy-to-clipboard button with visual feedback ("Copied" confirmation) so operators can instantly reproduce any test from the terminal
+- Panel is shown whenever `commandLine` is available in the test results, enabling debugging of both successful and failed tests
+
+**Backend — Command Logging**
+- Added `logger.info('Spawning udpst client', { testId, command, args })` immediately before the process is spawned
+- Added `logger.info('Test process exited', { testId, exitCode, stdoutPreview, stderrPreview })` for every process exit
+- `command_line` is now stored in the `tests` database row and returned by the `GET /api/test/results/:id` endpoint
+- Applied database migration `add_command_line_to_tests` to add a nullable `command_line TEXT` column to the `tests` table
+
+**Error Messages — Firewall Guidance**
+- Improved the description for ErrorStatus 3 ("Minimum required connections unavailable") to explain the actual root cause: the server accepted the setup handshake but test data on ephemeral UDP ports (32768–60999) never arrived at the backend machine
+- Message now includes a specific `sudo ufw allow 32768:60999/udp` command to run on the server
+- Added ErrorStatus 200 with a similar firewall-focused description
+
+**Removed Verbose Flag**
+- Removed the "verbose" option from the client test configuration form and from the state model
+- The `-v` (verbose) flag was causing udpst to mix human-readable text into stdout alongside JSON output, resulting in JSON parse failures for tests that would otherwise succeed
+- The `-f json` flag (always present) is now the sole output format controller
+
+#### Fixed Issues
+1. Verbose mode silently breaking JSON parsing for client tests
+2. ErrorStatus 3 showing an unhelpful generic message with no guidance
+3. No visibility into what exact `udpst` command the backend was running
+4. `command_line` not persisted to database
+
+---
+
 ### v1.0.4 - 2026-02-19
 
 **Install Script, Confirm Dialogs, and Database Fix**

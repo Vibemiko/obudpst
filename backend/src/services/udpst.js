@@ -235,10 +235,10 @@ function describeErrorStatus(code, raw) {
   const descriptions = {
     1: 'Test inconclusive — server could not determine IP-layer capacity.',
     2: 'Test inconclusive — server capacity undetermined. Ensure server is stable for the full test duration.',
-    3: 'Minimum required connections unavailable. Check that the server is running and accepting connections on the configured port.',
+    3: 'Minimum required connections unavailable. The server accepted the setup request but test data never arrived — this is usually a firewall issue. Ensure the backend machine can receive UDP traffic from the server on ephemeral ports 32768-60999. On the server run: sudo ufw allow 32768:60999/udp',
     4: 'Protocol version mismatch between client and server.',
     5: 'Authentication error — check that both client and server use the same authentication key.',
-    200: 'Test failed — minimum required connections unavailable. Verify the server is running and reachable.'
+    200: 'Test failed — minimum required connections unavailable. Verify the server is running, reachable on UDP port 25000, and that ephemeral UDP ports 32768-60999 are not blocked by a firewall between the backend and the server.'
   };
   return descriptions[code] || `Test completed with error status ${code}. Check server logs for details.`;
 }
@@ -293,6 +293,9 @@ export async function startClientTest(params) {
 
   args.push(...params.servers);
 
+  const commandLine = `${config.udpst.binaryPath} ${args.join(' ')}`;
+  logger.info('Spawning udpst client', { testId, command: commandLine, args });
+
   const proc = spawn(config.udpst.binaryPath, args, {
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -300,13 +303,15 @@ export async function startClientTest(params) {
   runningProcesses.set(testId, {
     process: proc,
     type: 'client',
-    startTime: new Date()
+    startTime: new Date(),
+    commandLine
   });
 
   await db.updateTest(testId, {
     status: 'running',
     pid: proc.pid,
-    started_at: new Date().toISOString()
+    started_at: new Date().toISOString(),
+    command_line: commandLine
   });
 
   let stdoutData = '';
@@ -355,6 +360,14 @@ export async function startClientTest(params) {
 
     const hasOutput = stdoutData.trim().length > 0;
 
+    logger.info('Test process exited', {
+      testId,
+      exitCode: code,
+      hasStdout: hasOutput,
+      stdoutPreview: stdoutData.substring(0, 300),
+      stderrPreview: stderrData.substring(0, 300)
+    });
+
     if (code === 0 || (code !== 0 && hasOutput)) {
       try {
         const results = parseUdpstOutput(stdoutData);
@@ -362,7 +375,7 @@ export async function startClientTest(params) {
         const errorStatus = results.raw?.ErrorStatus;
         if (errorStatus && errorStatus !== 0) {
           const errorDesc = describeErrorStatus(errorStatus, results.raw);
-          logger.warn('Test completed with ErrorStatus', { testId, errorStatus, exitCode: code });
+          logger.warn('Test completed with ErrorStatus', { testId, errorStatus, exitCode: code, errorDesc });
           await db.saveTestResults(testId, results);
           await db.updateTest(testId, {
             status: 'failed',
@@ -465,7 +478,8 @@ export async function getTestResults(testId) {
     } : null,
     rawOutput: result?.raw_output || null,
     completedAt: testWithResults.completed_at,
-    errorMessage: testWithResults.error_message
+    errorMessage: testWithResults.error_message,
+    commandLine: testWithResults.command_line || null
   };
 }
 

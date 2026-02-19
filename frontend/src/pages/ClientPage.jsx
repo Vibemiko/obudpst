@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, StopCircle, Download, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
+import { Play, StopCircle, Download, TrendingUp, TrendingDown, AlertCircle, Terminal, Copy, Check } from 'lucide-react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
@@ -18,14 +18,14 @@ export default function ClientPage() {
     interface: '',
     ipVersion: 'ipv4',
     jumboFrames: true,
-    bandwidth: 0,
-    verbose: false
+    bandwidth: 0
   });
 
   const [currentTest, setCurrentTest] = useState(null);
   const [testResults, setTestResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const [serversError, setServersError] = useState(null);
   const [interfaceError, setInterfaceError] = useState(null);
@@ -108,6 +108,14 @@ export default function ClientPage() {
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  function handleCopyCommand() {
+    if (!testResults?.commandLine) return;
+    navigator.clipboard.writeText(testResults.commandLine).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   function handleExportResults() {
@@ -255,17 +263,6 @@ export default function ClientPage() {
                 />
                 <span className="ml-2 text-sm text-gray-700">Enable jumbo frames</span>
               </label>
-
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={config.verbose}
-                  onChange={(e) => setConfig({ ...config, verbose: e.target.checked })}
-                  disabled={isRunning}
-                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                />
-                <span className="ml-2 text-sm text-gray-700">Verbose output</span>
-              </label>
             </div>
 
             <div className="flex gap-2 pt-2">
@@ -367,6 +364,27 @@ export default function ClientPage() {
                     <Download size={20} className="inline mr-2" />
                     Export Results
                   </Button>
+                </div>
+              )}
+
+              {testResults?.commandLine && (
+                <div className="border-t border-gray-200 pt-4 mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      <Terminal size={13} />
+                      Command Run
+                    </div>
+                    <button
+                      onClick={handleCopyCommand}
+                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                    >
+                      {copied ? <Check size={13} className="text-green-600" /> : <Copy size={13} />}
+                      {copied ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <pre className="text-xs font-mono bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-gray-700 whitespace-pre-wrap break-all leading-relaxed">
+                    {testResults.commandLine}
+                  </pre>
                 </div>
               )}
             </div>
