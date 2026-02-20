@@ -45,20 +45,24 @@ function resolveIntervals(json) {
 }
 
 function extractThroughput(json, intervals) {
-  if (json.IPLayerCapacity) {
-    return parseFloat(json.IPLayerCapacity) || 0;
+  if (json.Output?.Summary?.IPLayerCapacitySummary !== undefined) {
+    const val = parseFloat(json.Output.Summary.IPLayerCapacitySummary);
+    if (!isNaN(val)) return val;
   }
 
-  if (json.AvgRate) {
-    return parseFloat(json.AvgRate) || 0;
+  if (json.Output?.IPLayerCapacity !== undefined) {
+    const val = parseFloat(json.Output.IPLayerCapacity);
+    if (!isNaN(val)) return val;
   }
 
-  if (json.Output?.IPLayerCapacity) {
-    return parseFloat(json.Output.IPLayerCapacity) || 0;
+  if (json.Summary?.IPLayerCapacitySummary !== undefined) {
+    const val = parseFloat(json.Summary.IPLayerCapacitySummary);
+    if (!isNaN(val)) return val;
   }
 
-  if (json.summary?.IPLayerCapacity) {
-    return parseFloat(json.summary.IPLayerCapacity) || 0;
+  if (json.IPLayerCapacity !== undefined) {
+    const val = parseFloat(json.IPLayerCapacity);
+    if (!isNaN(val)) return val;
   }
 
   if (intervals.length > 0) {
@@ -70,25 +74,33 @@ function extractThroughput(json, intervals) {
     }
   }
 
-  return 0;
+  return null;
 }
 
 function extractPacketLoss(json, intervals) {
+  if (json.Output?.Summary?.LossRatioSummary !== undefined) {
+    const val = parseFloat(json.Output.Summary.LossRatioSummary);
+    if (!isNaN(val)) return val * 100;
+  }
+
+  if (json.Output?.LossRatio !== undefined) {
+    const val = parseFloat(json.Output.LossRatio);
+    if (!isNaN(val)) return val * 100;
+  }
+
+  if (json.Summary?.LossRatioSummary !== undefined) {
+    const val = parseFloat(json.Summary.LossRatioSummary);
+    if (!isNaN(val)) return val * 100;
+  }
+
   if (json.LossRatio !== undefined) {
-    return parseFloat(json.LossRatio) * 100 || 0;
+    const val = parseFloat(json.LossRatio);
+    if (!isNaN(val)) return val * 100;
   }
 
   if (json.Delivered !== undefined) {
     const delivered = parseFloat(json.Delivered);
-    return Math.max(0, 100 - delivered);
-  }
-
-  if (json.Output?.LossRatio !== undefined) {
-    return parseFloat(json.Output.LossRatio) * 100 || 0;
-  }
-
-  if (json.summary?.LossRatio !== undefined) {
-    return parseFloat(json.summary.LossRatio) * 100 || 0;
+    if (!isNaN(delivered)) return Math.max(0, 100 - delivered);
   }
 
   if (intervals.length > 0) {
@@ -100,67 +112,55 @@ function extractPacketLoss(json, intervals) {
     }
   }
 
-  return 0;
+  return null;
 }
 
 function extractLatency(json, intervals) {
-  if (json.MinDelay !== undefined) {
-    return parseFloat(json.MinDelay) || 0;
+  if (json.Output?.AtMax?.RTTRangeAtMax !== undefined) {
+    const val = parseFloat(json.Output.AtMax.RTTRangeAtMax);
+    if (!isNaN(val)) return val;
   }
 
-  if (json.RTTMin !== undefined) {
-    return parseFloat(json.RTTMin) || 0;
+  if (json.Output?.Summary?.RTTRangeSummary !== undefined) {
+    const val = parseFloat(json.Output.Summary.RTTRangeSummary);
+    if (!isNaN(val)) return val;
   }
 
-  if (json.Output?.MinDelay !== undefined) {
-    return parseFloat(json.Output.MinDelay) || 0;
+  if (json.AtMax?.RTTRangeAtMax !== undefined) {
+    const val = parseFloat(json.AtMax.RTTRangeAtMax);
+    if (!isNaN(val)) return val;
   }
 
-  if (json.summary?.MinDelay !== undefined) {
-    return parseFloat(json.summary.MinDelay) || 0;
+  if (json.Summary?.RTTRangeSummary !== undefined) {
+    const val = parseFloat(json.Summary.RTTRangeSummary);
+    if (!isNaN(val)) return val;
   }
 
-  if (intervals.length > 0) {
-    const values = intervals
-      .map(i => parseFloat(i.MinDelay || i.RTTMin || 0))
-      .filter(v => v > 0);
-    if (values.length > 0) {
-      return Math.min(...values);
-    }
-  }
-
-  return 0;
+  return null;
 }
 
 function extractJitter(json, intervals) {
-  if (json.PDV !== undefined) {
-    return parseFloat(json.PDV) || 0;
+  if (json.Output?.AtMax?.PDVAvg !== undefined) {
+    const val = parseFloat(json.Output.AtMax.PDVAvg);
+    if (!isNaN(val)) return val;
   }
 
-  if (json.MaxDelay !== undefined && json.MinDelay !== undefined) {
-    const maxDelay = parseFloat(json.MaxDelay) || 0;
-    const minDelay = parseFloat(json.MinDelay) || 0;
-    return maxDelay - minDelay;
+  if (json.Output?.Summary?.PDVAvg !== undefined) {
+    const val = parseFloat(json.Output.Summary.PDVAvg);
+    if (!isNaN(val)) return val;
   }
 
-  if (json.Output?.PDV !== undefined) {
-    return parseFloat(json.Output.PDV) || 0;
+  if (json.AtMax?.PDVAvg !== undefined) {
+    const val = parseFloat(json.AtMax.PDVAvg);
+    if (!isNaN(val)) return val;
   }
 
-  if (json.summary?.PDV !== undefined) {
-    return parseFloat(json.summary.PDV) || 0;
+  if (json.Summary?.PDVAvg !== undefined) {
+    const val = parseFloat(json.Summary.PDVAvg);
+    if (!isNaN(val)) return val;
   }
 
-  if (intervals.length > 0) {
-    const values = intervals
-      .map(i => parseFloat(i.PDV || 0))
-      .filter(v => v > 0);
-    if (values.length > 0) {
-      return values.reduce((a, b) => a + b, 0) / values.length;
-    }
-  }
-
-  return 0;
+  return null;
 }
 
 function extractSubIntervalData(json, intervals) {

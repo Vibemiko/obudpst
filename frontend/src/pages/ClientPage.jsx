@@ -394,23 +394,23 @@ export default function ClientPage() {
                 <div className="border-t border-gray-200 pt-4 mt-4 space-y-3">
                   <ResultItem
                     icon={config.testType === 'downstream' ? <TrendingDown className="text-primary-600" /> : <TrendingUp className="text-primary-600" />}
-                    label="Throughput"
-                    value={`${testResults.results.throughput.toFixed(2)} Mbps`}
+                    label="Throughput (IP Layer Avg)"
+                    value={formatMetric(testResults.results.throughput, 2, 'Mbps')}
                   />
 
                   <ResultItem
                     label="Packet Loss"
-                    value={`${testResults.results.packetLoss.toFixed(4)}%`}
+                    value={formatMetric(testResults.results.packetLoss, 2, '%')}
                   />
 
                   <ResultItem
-                    label="Latency"
-                    value={`${testResults.results.latency.toFixed(2)} ms`}
+                    label="Latency (RTT Range)"
+                    value={formatMetric(testResults.results.latency, 3, 'ms')}
                   />
 
                   <ResultItem
-                    label="Jitter"
-                    value={`${testResults.results.jitter.toFixed(2)} ms`}
+                    label="Jitter (PDV Avg)"
+                    value={formatMetric(testResults.results.jitter, 3, 'ms')}
                   />
 
                   <Button
@@ -455,6 +455,13 @@ export default function ClientPage() {
       </div>
     </div>
   );
+}
+
+function formatMetric(value, decimals, unit) {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 'N/A';
+  }
+  return `${parseFloat(value).toFixed(decimals)} ${unit}`;
 }
 
 function ResultItem({ icon, label, value }) {
