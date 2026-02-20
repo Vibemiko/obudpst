@@ -19,7 +19,8 @@ export default function ServerPage() {
     interface: '',
     daemon: false,
     authKey: '',
-    verbose: false
+    verbose: false,
+    jumboFrames: false
   });
 
   const [interfaceError, setInterfaceError] = useState(null);
@@ -222,26 +223,38 @@ export default function ServerPage() {
               disabled={serverStatus?.running}
             />
 
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-col space-y-3">
+              <div className="flex items-center space-x-4">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={config.daemon}
+                    onChange={(e) => setConfig({ ...config, daemon: e.target.checked })}
+                    disabled={serverStatus?.running}
+                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">Run as daemon</span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={config.verbose}
+                    onChange={(e) => setConfig({ ...config, verbose: e.target.checked })}
+                    disabled={serverStatus?.running}
+                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">Verbose output</span>
+                </label>
+              </div>
               <label className="flex items-center">
                 <input
                   type="checkbox"
-                  checked={config.daemon}
-                  onChange={(e) => setConfig({ ...config, daemon: e.target.checked })}
+                  checked={config.jumboFrames}
+                  onChange={(e) => setConfig({ ...config, jumboFrames: e.target.checked })}
                   disabled={serverStatus?.running}
                   className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                 />
-                <span className="ml-2 text-sm text-gray-700">Run as daemon</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={config.verbose}
-                  onChange={(e) => setConfig({ ...config, verbose: e.target.checked })}
-                  disabled={serverStatus?.running}
-                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                />
-                <span className="ml-2 text-sm text-gray-700">Verbose output</span>
+                <span className="ml-2 text-sm text-gray-700">Enable jumbo frames</span>
               </label>
             </div>
 

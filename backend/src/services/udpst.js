@@ -223,6 +223,10 @@ export async function startServer(params) {
     args.push('-v');
   }
 
+  if (!params.jumboFrames) {
+    args.push('-j');
+  }
+
   if (params.interface) {
     args.push(params.interface);
   }

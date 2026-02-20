@@ -18,7 +18,7 @@ export default function ClientPage() {
     connections: 2,
     interface: '',
     ipVersion: 'ipv4',
-    jumboFrames: true,
+    jumboFrames: false,
     bandwidth: 0
   });
 
