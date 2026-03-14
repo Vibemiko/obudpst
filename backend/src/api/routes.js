@@ -1,4 +1,5 @@
 import express from 'express';
+import { networkInterfaces } from 'os';
 import * as udpst from '../services/udpst.js';
 import * as db from '../services/database.js';
 import * as healthCheck from '../services/health-check.js';
@@ -15,7 +16,8 @@ router.post('/server/start', async (req, res) => {
       interface: req.body.interface || '',
       daemon: req.body.daemon || false,
       authKey: req.body.authKey || '',
-      verbose: req.body.verbose || false
+      ipVersion: req.body.ipVersion || 'ipv4',
+      mtuMode: req.body.mtuMode || 'default'
     };
 
     logger.info('Starting UDPST server', params);
@@ -92,9 +94,10 @@ router.post('/client/start', async (req, res) => {
       connections: req.body.connections || 1,
       interface: req.body.interface || '',
       ipVersion: req.body.ipVersion || 'ipv4',
-      jumboFrames: req.body.jumboFrames !== false,
+      mtuMode: req.body.mtuMode || 'default',
       bandwidth: req.body.bandwidth || 0,
-      verbose: false,
+      rateIndex: req.body.rateIndex !== undefined ? req.body.rateIndex : null,
+      authKey: req.body.authKey || '',
       jsonOutput: true
     };
 
@@ -408,6 +411,38 @@ router.post('/diagnostics/quick-test', async (req, res) => {
       error: error.message,
       code: 'INTERNAL_ERROR'
     });
+  }
+});
+
+router.get('/server/output', (req, res) => {
+  try {
+    const since = parseInt(req.query.since) || 0;
+    const lines = udpst.getServerOutput(since);
+    res.json({ success: true, lines, total: lines.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.get('/interfaces', (req, res) => {
+  try {
+    const ifaces = networkInterfaces();
+    const result = [];
+    for (const [name, addrs] of Object.entries(ifaces)) {
+      if (!addrs) continue;
+      for (const addr of addrs) {
+        if (addr.internal) continue;
+        result.push({
+          name,
+          address: addr.address,
+          family: addr.family,
+          netmask: addr.netmask
+        });
+      }
+    }
+    res.json({ success: true, interfaces: result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

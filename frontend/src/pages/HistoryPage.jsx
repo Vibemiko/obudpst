@@ -228,8 +228,18 @@ export default function HistoryPage() {
                       <span className="text-sm font-mono text-gray-900">{test.test_id}</span>
                       <StatusBadge status={test.status} showIcon={true} />
                     </div>
-                    <div className="flex items-center gap-4 mt-1">
+                    <div className="flex items-center gap-4 mt-1 flex-wrap">
                       <span className="text-xs text-gray-500 capitalize">{test.test_type}</span>
+                      {test.servers && (
+                        <span className="text-xs text-gray-500 font-mono">
+                          {Array.isArray(test.servers) ? test.servers.join(', ') : test.servers}
+                        </span>
+                      )}
+                      {test.machine_id && (
+                        <span className="text-xs text-gray-400 font-mono">
+                          {test.machine_id.slice(0, 12)}
+                        </span>
+                      )}
                       <span className="text-xs text-gray-500">
                         {new Date(test.created_at).toLocaleString()}
                       </span>
@@ -266,6 +276,22 @@ export default function HistoryPage() {
                   <StatusBadge status={selectedTest.status} showIcon={true} />
                 </div>
               </div>
+
+              {selectedTest.servers && (
+                <div>
+                  <span className="text-xs font-medium text-gray-500">Server(s)</span>
+                  <p className="text-sm font-mono text-gray-900 mt-1">
+                    {Array.isArray(selectedTest.servers) ? selectedTest.servers.join(', ') : selectedTest.servers}
+                  </p>
+                </div>
+              )}
+
+              {selectedTest.machineId && (
+                <div>
+                  <span className="text-xs font-medium text-gray-500">Machine ID</span>
+                  <p className="text-sm font-mono text-gray-900 mt-1">{selectedTest.machineId}</p>
+                </div>
+              )}
 
               {selectedTest.completedAt && (
                 <div>

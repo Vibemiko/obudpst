@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, StopCircle, Download, TrendingUp, TrendingDown, AlertCircle, AlertTriangle, Terminal, Copy, Check, Activity } from 'lucide-react';
+import { Play, CircleStop as StopCircle, Download, TrendingUp, TrendingDown, CircleAlert as AlertCircle, TriangleAlert as AlertTriangle, Terminal, Copy, Check, Info } from 'lucide-react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
@@ -18,10 +18,13 @@ export default function ClientPage() {
     connections: 2,
     interface: '',
     ipVersion: 'ipv4',
-    jumboFrames: false,
-    bandwidth: 0
+    mtuMode: 'default',
+    bandwidth: 0,
+    rateIndex: '',
+    authKey: ''
   });
 
+  const [interfaces, setInterfaces] = useState([]);
   const [currentTest, setCurrentTest] = useState(null);
   const [testResults, setTestResults] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -29,8 +32,12 @@ export default function ClientPage() {
   const [copied, setCopied] = useState(false);
 
   const [serversError, setServersError] = useState(null);
-  const [interfaceError, setInterfaceError] = useState(null);
   const [healthCheckResult, setHealthCheckResult] = useState(null);
+  const [showBandwidthTip, setShowBandwidthTip] = useState(false);
+
+  useEffect(() => {
+    api.interfaces.list().then(r => setInterfaces(r.interfaces || [])).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (currentTest?.testId && currentTest?.status === 'running') {
@@ -59,7 +66,6 @@ export default function ClientPage() {
     const newVersion = e.target.value;
     setConfig({ ...config, ipVersion: newVersion, servers: '', interface: '' });
     setServersError(null);
-    setInterfaceError(null);
   }
 
   function handleServersChange(e) {
@@ -69,13 +75,7 @@ export default function ClientPage() {
     setHealthCheckResult(null);
   }
 
-  function handleInterfaceChange(e) {
-    const val = e.target.value;
-    setConfig({ ...config, interface: val });
-    setInterfaceError(validateSingleIP(val, config.ipVersion));
-  }
-
-  const isStartDisabled = loading || !!serversError || !!interfaceError || !config.servers.trim();
+  const isStartDisabled = loading || !!serversError || !config.servers.trim();
 
   async function handleStart() {
     setLoading(true);
@@ -85,10 +85,24 @@ export default function ClientPage() {
     try {
       const servers = config.servers.split(',').map(s => s.trim()).filter(s => s);
 
-      const result = await api.client.start({
-        ...config,
-        servers
-      });
+      const params = {
+        testType: config.testType,
+        servers,
+        port: config.port,
+        duration: config.duration,
+        connections: config.connections,
+        interface: config.interface,
+        ipVersion: config.ipVersion,
+        mtuMode: config.mtuMode,
+        bandwidth: config.bandwidth,
+        authKey: config.authKey || undefined
+      };
+
+      if (config.rateIndex !== '') {
+        params.rateIndex = config.rateIndex;
+      }
+
+      const result = await api.client.start(params);
 
       setCurrentTest({
         testId: result.testId,
@@ -139,14 +153,15 @@ export default function ClientPage() {
   const serversPlaceholder = config.ipVersion === 'ipv6'
     ? 'e.g. 2001:db8::1 or multiple: 2001:db8::1, 2001:db8::2'
     : 'e.g. 192.168.1.100 or multiple: 192.168.1.100, 192.168.1.101';
-  const interfacePlaceholder = config.ipVersion === 'ipv6'
-    ? 'Optional (e.g. ::1)'
-    : 'Optional (e.g. 192.168.1.10)';
 
   const testFailed = testResults?.status === 'failed' || (testResults?.errorMessage && !testResults?.results);
   const testCompletedWithWarnings = testResults?.status === 'completed_warnings';
   const testCompletedPartial = testResults?.status === 'completed_partial';
   const showResults = testResults?.results && (testResults?.status === 'completed' || testCompletedWithWarnings || testCompletedPartial);
+
+  const filteredInterfaces = interfaces.filter(i =>
+    config.ipVersion === 'ipv6' ? i.family === 'IPv6' : i.family === 'IPv4'
+  );
 
   return (
     <div className="space-y-6">
@@ -235,43 +250,123 @@ export default function ClientPage() {
                   max={24}
                   disabled={isRunning}
                 />
-                <p className="text-xs text-gray-500 mt-1">2+ connections recommended for production testing</p>
+                <p className="text-xs text-gray-500 mt-1">2+ connections recommended</p>
               </div>
 
-              <Input
-                label="Bandwidth (Mbps, 0 = unlimited)"
-                type="number"
-                value={config.bandwidth}
-                onChange={(e) => setConfig({ ...config, bandwidth: parseInt(e.target.value) })}
-                min={0}
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Bandwidth (Mbps)</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowBandwidthTip(v => !v)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <Info size={14} />
+                  </button>
+                </div>
+                {showBandwidthTip && (
+                  <div className="mb-2 text-xs bg-blue-50 border border-blue-200 rounded px-2 py-1.5 text-blue-800">
+                    <strong>Search Mode (-B)</strong>: This sets the <em>starting</em> search rate, not a cap. UDPST will dynamically probe upward to find the true capacity. Set to 0 for automatic starting point.
+                  </div>
+                )}
+                <Input
+                  type="number"
+                  value={config.bandwidth}
+                  onChange={(e) => setConfig({ ...config, bandwidth: parseInt(e.target.value) })}
+                  min={0}
+                  disabled={isRunning}
+                  placeholder="0 = auto"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sending Rate Index (-I)</label>
+              <div className="grid grid-cols-3 gap-2 mb-1">
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, rateIndex: '' })}
+                  disabled={isRunning}
+                  className={`px-2 py-1.5 text-xs rounded border transition-colors ${config.rateIndex === '' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                >
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, rateIndex: '@' })}
+                  disabled={isRunning}
+                  className={`px-2 py-1.5 text-xs rounded border transition-colors ${config.rateIndex.startsWith('@') && config.rateIndex !== '@0' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                >
+                  Dynamic
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, rateIndex: '1' })}
+                  disabled={isRunning}
+                  className={`px-2 py-1.5 text-xs rounded border transition-colors ${config.rateIndex !== '' && !config.rateIndex.startsWith('@') ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                >
+                  Fixed
+                </button>
+              </div>
+              {config.rateIndex !== '' && (
+                <Input
+                  value={config.rateIndex}
+                  onChange={(e) => setConfig({ ...config, rateIndex: e.target.value })}
+                  placeholder={config.rateIndex.startsWith('@') ? '@X (dynamic start, e.g. @50)' : 'X (fixed index, e.g. 100)'}
+                  disabled={isRunning}
+                />
+              )}
+              <p className="text-xs text-gray-500 mt-1">Auto = -I @0, Dynamic = -I @X (start index), Fixed = -I X (exact row)</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bind Interface</label>
+              <select
+                value={config.interface}
+                onChange={(e) => setConfig({ ...config, interface: e.target.value })}
                 disabled={isRunning}
-              />
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              >
+                <option value="">Any interface</option>
+                {filteredInterfaces.map(i => (
+                  <option key={`${i.name}-${i.address}`} value={i.address}>
+                    {i.name} — {i.address}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">MTU Mode</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'default', label: 'Default', desc: '1222 byte payload (-j)' },
+                  { value: 'internet', label: 'Internet', desc: '1472 byte payload (-j -T)' },
+                  { value: 'jumbo', label: 'Jumbo', desc: '8972 byte payload (no flags)' }
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setConfig({ ...config, mtuMode: opt.value })}
+                    disabled={isRunning}
+                    className={`px-2 py-2 text-xs rounded border text-left transition-colors ${config.mtuMode === opt.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  >
+                    <div className="font-medium">{opt.label}</div>
+                    <div className={`mt-0.5 ${config.mtuMode === opt.value ? 'text-blue-100' : 'text-gray-400'}`}>{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div>
               <Input
-                label={`Interface ${ipVersionLabel} Address`}
-                value={config.interface}
-                onChange={handleInterfaceChange}
-                placeholder={interfacePlaceholder}
+                label="Auth Key (optional)"
+                type="password"
+                value={config.authKey}
+                onChange={(e) => setConfig({ ...config, authKey: e.target.value })}
+                placeholder="Leave blank if server has no key"
                 disabled={isRunning}
               />
-              {interfaceError && (
-                <p className="mt-1 text-xs text-red-600">{interfaceError}</p>
-              )}
-            </div>
-
-            <div className="flex items-center space-x-4">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={config.jumboFrames}
-                  onChange={(e) => setConfig({ ...config, jumboFrames: e.target.checked })}
-                  disabled={isRunning}
-                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                />
-                <span className="ml-2 text-sm text-gray-700">Enable jumbo frames</span>
-              </label>
             </div>
 
             <div className="flex gap-2 pt-2">
@@ -328,7 +423,7 @@ export default function ClientPage() {
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div
-                      className="bg-primary-600 h-2 rounded-full transition-all duration-300"
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                       style={{ width: `${currentTest.progress}%` }}
                     />
                   </div>
@@ -346,16 +441,9 @@ export default function ClientPage() {
                       </p>
                     </div>
                   </div>
-                  {testResults.errorMessage && testResults.errorMessage.includes('unavailable') && (
+                  {testResults.errorMessage?.includes('authentication') && (
                     <div className="mt-3 pt-3 border-t border-red-200">
-                      <p className="text-xs font-semibold text-red-800 mb-2">Troubleshooting Steps:</p>
-                      <ul className="text-xs text-red-700 space-y-1 ml-4 list-disc">
-                        <li>Verify the UDPST server is running on the target machine</li>
-                        <li>Check that port {config.port} is accessible (not blocked by firewall)</li>
-                        <li>Ensure UDP ports 32768-60999 are not blocked between machines</li>
-                        <li>Try the Server Health Check above to diagnose connectivity issues</li>
-                        <li>Verify network connectivity with: ping {config.servers.split(',')[0]?.trim()}</li>
-                      </ul>
+                      <p className="text-xs text-red-700">Verify the auth key matches the server configuration.</p>
                     </div>
                   )}
                 </div>
@@ -370,7 +458,7 @@ export default function ClientPage() {
                       <p className="text-sm text-amber-800">{testResults.errorMessage}</p>
                       {config.testType === 'downstream' && (
                         <p className="text-xs text-amber-700 mt-2">
-                          Note: Connection warnings after downstream test completion are normal behavior and do not indicate a problem.
+                          Note: Connection warnings after downstream test completion are normal behavior.
                         </p>
                       )}
                     </div>
@@ -393,8 +481,8 @@ export default function ClientPage() {
               {showResults && (
                 <div className="border-t border-gray-200 pt-4 mt-4 space-y-3">
                   <ResultItem
-                    icon={config.testType === 'downstream' ? <TrendingDown className="text-primary-600" /> : <TrendingUp className="text-primary-600" />}
-                    label="Throughput (IP Layer Avg)"
+                    icon={config.testType === 'downstream' ? <TrendingDown className="text-blue-600" /> : <TrendingUp className="text-blue-600" />}
+                    label="Throughput (IP Layer)"
                     value={formatMetric(testResults.results.throughput, 2, 'Mbps')}
                   />
 

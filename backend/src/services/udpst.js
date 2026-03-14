@@ -2,11 +2,13 @@ import { spawn } from 'child_process';
 import { access, constants } from 'fs/promises';
 import { existsSync } from 'fs';
 import { config } from '../config.js';
-import { parseUdpstOutput, assessResultQuality, classifyErrorSeverity } from '../utils/parser.js';
+import { parseUdpstOutput, parseSubIntervals, assessResultQuality, classifyErrorSeverity } from '../utils/parser.js';
 import * as db from './database.js';
 import { logger } from '../utils/logger.js';
 
 const runningProcesses = new Map();
+const serverOutputLines = [];
+const MAX_SERVER_OUTPUT_LINES = 500;
 
 function ensureBinaryExists() {
   if (!existsSync(config.udpst.binaryPath)) {
@@ -70,41 +72,32 @@ function parseBinaryVersion(output) {
   const lines = output.split('\n');
 
   for (const line of lines) {
-    if (line.includes('Version:')) {
-      const match = line.match(/Version:\s*([^\s]+)/);
+    if (info.version === null && line.includes('Software Ver:')) {
+      const match = line.match(/Software Ver:\s*([\d.]+(?:-\S+)?)/);
       if (match) info.version = match[1];
     }
 
-    if (line.includes('Built:')) {
-      const match = line.match(/Built:\s*(.+)/);
+    if (info.buildDate === null && line.includes('Built:')) {
+      const match = line.match(/Built:\s*(.+?)(?:,|$)/);
       if (match) {
         info.buildDate = match[1].trim();
-        const buildYear = parseInt(info.buildDate.match(/\d{4}/)?.[0] || '0');
-        const currentYear = new Date().getFullYear();
-        if (buildYear > currentYear) {
-          info.warnings.push({
-            severity: 'HIGH',
-            message: `Build date is in the future (${buildYear}). This indicates a development or test build that may have bugs.`,
-            recommendation: 'Obtain a stable release binary or recompile with correct system time.'
-          });
-        }
       }
     }
 
-    if (line.includes('Protocol:')) {
-      const match = line.match(/Protocol:\s*v?(\d+)/);
-      if (match) info.protocolVersion = parseInt(match[1]);
+    if (info.protocolVersion === null && line.includes('Protocol Ver:')) {
+      const match = line.match(/Protocol Ver:\s*([\d.-]+)/);
+      if (match) info.protocolVersion = match[1];
     }
 
-    if (line.includes('SendMMsg+GSO')) {
+    if (line.includes('SendMMsg') && !info.optimizations.includes('SendMMsg+GSO')) {
       info.optimizations.push('SendMMsg+GSO');
     }
-    if (line.includes('RecvMMsg+Trunc')) {
+    if (line.includes('RecvMMsg') && !info.optimizations.includes('RecvMMsg+Trunc')) {
       info.optimizations.push('RecvMMsg+Trunc');
     }
   }
 
-  if (info.version && info.version.includes('dev') || info.version?.includes('test')) {
+  if (info.version && (info.version.includes('dev') || info.version.includes('test'))) {
     info.warnings.push({
       severity: 'MEDIUM',
       message: 'Development or test version detected.',
@@ -112,10 +105,13 @@ function parseBinaryVersion(output) {
     });
   }
 
-  if (info.optimizations.length === 0) {
+  if (info.optimizations.length < 2) {
+    const missing = [];
+    if (!info.optimizations.includes('SendMMsg+GSO')) missing.push('SendMMsg+GSO');
+    if (!info.optimizations.includes('RecvMMsg+Trunc')) missing.push('RecvMMsg+Trunc');
     info.warnings.push({
       severity: 'LOW',
-      message: 'No performance optimizations detected.',
+      message: `Performance optimizations not detected: ${missing.join(', ')}. This binary may have been compiled without these features.`,
       recommendation: 'Recompile with SendMMsg+GSO and RecvMMsg+Trunc support for better performance.'
     });
   }
@@ -219,17 +215,20 @@ export async function startServer(params) {
     args.push('-4');
   }
 
-  if (params.verbose) {
-    args.push('-v');
-  }
+  args.push('-v');
 
-  if (!params.jumboFrames) {
+  const mtuMode = params.mtuMode || (params.jumboFrames === false ? 'default' : 'jumbo');
+  if (mtuMode === 'default') {
     args.push('-j');
+  } else if (mtuMode === 'internet') {
+    args.push('-j', '-T');
   }
 
   if (params.interface) {
     args.push(params.interface);
   }
+
+  serverOutputLines.length = 0;
 
   const proc = spawn(config.udpst.binaryPath, args, {
     detached: params.daemon,
@@ -256,8 +255,18 @@ export async function startServer(params) {
   if (params.daemon) {
     proc.unref();
   } else {
-    proc.stdout?.on('data', () => {});
-    proc.stderr?.on('data', () => {});
+    function appendServerOutput(data) {
+      const text = data.toString();
+      const newLines = text.split('\n').filter(l => l.trim());
+      for (const line of newLines) {
+        serverOutputLines.push({ ts: new Date().toISOString(), line });
+        if (serverOutputLines.length > MAX_SERVER_OUTPUT_LINES) {
+          serverOutputLines.shift();
+        }
+      }
+    }
+    proc.stdout?.on('data', appendServerOutput);
+    proc.stderr?.on('data', appendServerOutput);
 
     proc.on('exit', async (code) => {
       runningProcesses.delete(processId);
@@ -386,7 +395,8 @@ export async function startClientTest(params) {
     testId,
     testType: params.testType,
     servers: params.servers,
-    config: params
+    config: params,
+    machineId: config.machineId
   });
 
   const args = [];
@@ -413,14 +423,25 @@ export async function startClientTest(params) {
     args.push('-B', params.bandwidth.toString());
   }
 
+  if (params.rateIndex !== undefined && params.rateIndex !== null && params.rateIndex !== '') {
+    args.push('-I', params.rateIndex.toString());
+  }
+
+  if (params.authKey) {
+    args.push('-a', params.authKey);
+  }
+
   if (params.ipVersion === 'ipv4') {
     args.push('-4');
   } else if (params.ipVersion === 'ipv6') {
     args.push('-6');
   }
 
-  if (!params.jumboFrames) {
+  const mtuMode = params.mtuMode || (params.jumboFrames === false ? 'default' : 'jumbo');
+  if (mtuMode === 'default') {
     args.push('-j');
+  } else if (mtuMode === 'internet') {
+    args.push('-j', '-T');
   }
 
   args.push('-f', 'json');
@@ -505,6 +526,7 @@ export async function startClientTest(params) {
     if (code === 0 || (code !== 0 && hasOutput)) {
       try {
         const results = parseUdpstOutput(stdoutData);
+        results.subIntervals = parseSubIntervals(stdoutData);
         const errorStatus = results.raw?.ErrorStatus;
         const errorMessage2 = results.raw?.ErrorMessage2;
 
@@ -669,6 +691,8 @@ export async function getTestResults(testId) {
   return {
     testId: testWithResults.test_id,
     status: testWithResults.status,
+    servers: testWithResults.servers || [],
+    machineId: testWithResults.machine_id || null,
     results: result ? {
       throughput: parseFloat(result.throughput_mbps),
       packetLoss: parseFloat(result.packet_loss_percent),
@@ -680,6 +704,7 @@ export async function getTestResults(testId) {
     rawOutput: result?.raw_output || null,
     completedAt: testWithResults.completed_at,
     errorMessage: testWithResults.error_message,
+    warningMessage: testWithResults.warning_messages || null,
     commandLine: testWithResults.command_line || null
   };
 }
@@ -704,6 +729,11 @@ export async function stopTest(testId) {
 
 export async function listTests(params) {
   return db.listTests(params);
+}
+
+export function getServerOutput(since = 0) {
+  if (since === 0) return serverOutputLines.slice();
+  return serverOutputLines.filter((_, i) => i >= since);
 }
 
 export async function getServerConnections() {

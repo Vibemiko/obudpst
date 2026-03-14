@@ -1,3 +1,42 @@
+export function parseSubIntervals(output) {
+  const subIntervals = [];
+  const lineRegex = /\[(\d+)\]Sub-Interval\[(\d+)\]\(sec\):\s*([\d.]+),\s*Delivered\(%\):\s*([\d.]+),\s*Loss\/OoO\/Dup:\s*([\d.]+)\/([\d.]+)\/([\d.]+),\s*OWDVar\(ms\):\s*([\d.]+)\/([\d.]+)\/([\d.]+),\s*RTTVar\(ms\):\s*([\d.]+)-([\d.]+),\s*Mbps\(L3\/IP\):\s*([\d.]+)/;
+
+  for (const line of output.split('\n')) {
+    const match = line.match(lineRegex);
+    if (match) {
+      subIntervals.push({
+        connId: parseInt(match[1]),
+        intervalIndex: parseInt(match[2]),
+        seconds: parseFloat(match[3]),
+        delivered: parseFloat(match[4]),
+        loss: parseFloat(match[5]),
+        outOfOrder: parseFloat(match[6]),
+        duplicates: parseFloat(match[7]),
+        owdVarMin: parseFloat(match[8]),
+        owdVarAvg: parseFloat(match[9]),
+        owdVarMax: parseFloat(match[10]),
+        rttVarMin: parseFloat(match[11]),
+        rttVarMax: parseFloat(match[12]),
+        mbps: parseFloat(match[13])
+      });
+    }
+  }
+
+  const byConnection = {};
+  for (const si of subIntervals) {
+    if (!byConnection[si.connId]) byConnection[si.connId] = [];
+    byConnection[si.connId].push(si);
+  }
+
+  return {
+    intervals: subIntervals,
+    byConnection,
+    totalIntervals: subIntervals.length,
+    connectionIds: Object.keys(byConnection).map(Number)
+  };
+}
+
 export function parseUdpstOutput(output) {
   const jsonMatch = output.match(/\{[\s\S]*\}/);
 
@@ -44,37 +83,74 @@ function resolveIntervals(json) {
   return [];
 }
 
-function extractThroughput(json, intervals) {
-  if (json.Output?.Summary?.IPLayerCapacitySummary !== undefined) {
-    const val = parseFloat(json.Output.Summary.IPLayerCapacitySummary);
+function extractDeliveredPercent(json, intervals) {
+  if (json.Output?.Summary?.DeliveredSummary !== undefined) {
+    const val = parseFloat(json.Output.Summary.DeliveredSummary);
     if (!isNaN(val)) return val;
   }
-
-  if (json.Output?.IPLayerCapacity !== undefined) {
-    const val = parseFloat(json.Output.IPLayerCapacity);
+  if (json.Summary?.DeliveredSummary !== undefined) {
+    const val = parseFloat(json.Summary.DeliveredSummary);
     if (!isNaN(val)) return val;
   }
-
-  if (json.Summary?.IPLayerCapacitySummary !== undefined) {
-    const val = parseFloat(json.Summary.IPLayerCapacitySummary);
+  if (json.Output?.Delivered !== undefined) {
+    const val = parseFloat(json.Output.Delivered);
     if (!isNaN(val)) return val;
   }
-
-  if (json.IPLayerCapacity !== undefined) {
-    const val = parseFloat(json.IPLayerCapacity);
+  if (json.Delivered !== undefined) {
+    const val = parseFloat(json.Delivered);
     if (!isNaN(val)) return val;
   }
-
   if (intervals.length > 0) {
     const values = intervals
-      .map(i => parseFloat(i.IPLayerCapacity || i.AvgRate || 0))
-      .filter(v => v > 0);
+      .map(i => parseFloat(i.Delivered || 100))
+      .filter(v => !isNaN(v));
     if (values.length > 0) {
       return values.reduce((a, b) => a + b, 0) / values.length;
     }
   }
+  return 100;
+}
 
-  return null;
+function extractThroughput(json, intervals) {
+  let summaryMbps = null;
+
+  if (json.Output?.Summary?.IPLayerCapacitySummary !== undefined) {
+    const val = parseFloat(json.Output.Summary.IPLayerCapacitySummary);
+    if (!isNaN(val)) summaryMbps = val;
+  }
+
+  if (summaryMbps === null && json.Output?.IPLayerCapacity !== undefined) {
+    const val = parseFloat(json.Output.IPLayerCapacity);
+    if (!isNaN(val)) summaryMbps = val;
+  }
+
+  if (summaryMbps === null && json.Summary?.IPLayerCapacitySummary !== undefined) {
+    const val = parseFloat(json.Summary.IPLayerCapacitySummary);
+    if (!isNaN(val)) summaryMbps = val;
+  }
+
+  if (summaryMbps === null && json.IPLayerCapacity !== undefined) {
+    const val = parseFloat(json.IPLayerCapacity);
+    if (!isNaN(val)) summaryMbps = val;
+  }
+
+  if (summaryMbps === null && intervals.length > 0) {
+    const values = intervals
+      .map(i => parseFloat(i.IPLayerCapacity || i.AvgRate || 0))
+      .filter(v => v > 0);
+    if (values.length > 0) {
+      summaryMbps = values.reduce((a, b) => a + b, 0) / values.length;
+    }
+  }
+
+  if (summaryMbps === null) return null;
+
+  const delivered = extractDeliveredPercent(json, intervals);
+  if (delivered < 100) {
+    return summaryMbps * (delivered / 100);
+  }
+
+  return summaryMbps;
 }
 
 function extractPacketLoss(json, intervals) {

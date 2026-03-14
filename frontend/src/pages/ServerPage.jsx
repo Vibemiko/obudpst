@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react';
-import { Power, PowerOff, CheckCircle, XCircle, Wifi, Clock, ArrowDown, ArrowUp } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Power, PowerOff, CircleCheck as CheckCircle, Circle as XCircle, Wifi, Clock, ArrowDown, ArrowUp, Terminal } from 'lucide-react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import Select from '../components/Select';
 import { api } from '../services/api';
-import { validateSingleIP } from '../utils/validation';
 
 export default function ServerPage() {
   const [serverStatus, setServerStatus] = useState(null);
   const [connections, setConnections] = useState([]);
+  const [interfaces, setInterfaces] = useState([]);
+  const [serverOutput, setServerOutput] = useState([]);
+  const [outputSince, setOutputSince] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const outputRef = useRef(null);
 
   const [config, setConfig] = useState({
     port: 25000,
@@ -19,17 +22,32 @@ export default function ServerPage() {
     interface: '',
     daemon: false,
     authKey: '',
-    verbose: false,
-    jumboFrames: false
+    mtuMode: 'default'
   });
 
-  const [interfaceError, setInterfaceError] = useState(null);
+  useEffect(() => {
+    api.interfaces.list().then(data => {
+      setInterfaces(data.interfaces || []);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetchAll();
     const interval = setInterval(fetchAll, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (serverStatus?.running) {
+      fetchOutput();
+    }
+  }, [serverStatus?.running]);
+
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [serverOutput]);
 
   async function fetchAll() {
     try {
@@ -44,22 +62,39 @@ export default function ServerPage() {
     }
   }
 
+  async function fetchOutput() {
+    try {
+      const data = await api.server.getOutput(outputSince);
+      if (data.lines && data.lines.length > 0) {
+        setServerOutput(prev => [...prev, ...data.lines]);
+        setOutputSince(data.nextSince || outputSince + data.lines.length);
+      }
+    } catch (err) {
+      console.error('Failed to fetch server output:', err);
+    }
+  }
+
+  useEffect(() => {
+    if (!serverStatus?.running) return;
+    const interval = setInterval(fetchOutput, 1000);
+    return () => clearInterval(interval);
+  }, [serverStatus?.running, outputSince]);
+
+  const filteredInterfaces = interfaces.filter(iface =>
+    config.ipVersion === 'ipv6'
+      ? iface.family === 'IPv6'
+      : iface.family === 'IPv4'
+  );
+
   function handleIPVersionChange(e) {
     setConfig({ ...config, ipVersion: e.target.value, interface: '' });
-    setInterfaceError(null);
   }
-
-  function handleInterfaceChange(e) {
-    const val = e.target.value;
-    setConfig({ ...config, interface: val });
-    setInterfaceError(validateSingleIP(val, config.ipVersion));
-  }
-
-  const isStartDisabled = loading || !!interfaceError;
 
   async function handleStart() {
     setLoading(true);
     setError(null);
+    setServerOutput([]);
+    setOutputSince(0);
     try {
       await api.server.start(config);
       await fetchAll();
@@ -83,10 +118,13 @@ export default function ServerPage() {
     }
   }
 
-  const ipVersionLabel = config.ipVersion === 'ipv6' ? 'IPv6' : 'IPv4';
-  const interfacePlaceholder = config.ipVersion === 'ipv6'
-    ? 'Leave empty for all interfaces (e.g. ::1)'
-    : 'Leave empty for all interfaces (e.g. 192.168.1.1)';
+  const interfaceOptions = [
+    { value: '', label: 'All interfaces' },
+    ...filteredInterfaces.map(iface => ({
+      value: iface.address,
+      label: `${iface.name} — ${iface.address}`
+    }))
+  ];
 
   return (
     <div className="space-y-6">
@@ -158,6 +196,11 @@ export default function ServerPage() {
                     <span className="text-sm text-gray-900">{serverStatus.config.interface}</span>
                   </StatusRow>
                 )}
+                {serverStatus.config?.mtuMode && (
+                  <StatusRow label="MTU Mode">
+                    <span className="text-sm text-gray-900 capitalize">{serverStatus.config.mtuMode}</span>
+                  </StatusRow>
+                )}
                 <StatusRow label="Active Connections">
                   <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-700 font-bold text-sm">
                     {connections.length}
@@ -203,16 +246,47 @@ export default function ServerPage() {
             />
 
             <div>
-              <Input
-                label={`Interface ${ipVersionLabel} Address`}
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Bind Interface
+              </label>
+              <select
                 value={config.interface}
-                onChange={handleInterfaceChange}
-                placeholder={interfacePlaceholder}
+                onChange={(e) => setConfig({ ...config, interface: e.target.value })}
                 disabled={serverStatus?.running}
-              />
-              {interfaceError && (
-                <p className="mt-1 text-xs text-red-600">{interfaceError}</p>
-              )}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+              >
+                {interfaceOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">MTU Mode</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'default', label: 'Default', desc: '1222 byte (-j)' },
+                  { value: 'internet', label: 'Internet', desc: '1472 byte (-j -T)' },
+                  { value: 'jumbo', label: 'Jumbo', desc: '8972 byte (none)' }
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setConfig({ ...config, mtuMode: opt.value })}
+                    disabled={serverStatus?.running}
+                    className={`px-2 py-2 text-xs rounded border text-left transition-colors ${
+                      config.mtuMode === opt.value
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 disabled:opacity-50'
+                    }`}
+                  >
+                    <div className="font-medium">{opt.label}</div>
+                    <div className={`mt-0.5 ${config.mtuMode === opt.value ? 'text-blue-100' : 'text-gray-400'}`}>
+                      {opt.desc}
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <Input
@@ -223,46 +297,29 @@ export default function ServerPage() {
               disabled={serverStatus?.running}
             />
 
-            <div className="flex flex-col space-y-3">
-              <div className="flex items-center space-x-4">
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={config.daemon}
-                    onChange={(e) => setConfig({ ...config, daemon: e.target.checked })}
-                    disabled={serverStatus?.running}
-                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">Run as daemon</span>
-                </label>
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={config.verbose}
-                    onChange={(e) => setConfig({ ...config, verbose: e.target.checked })}
-                    disabled={serverStatus?.running}
-                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">Verbose output</span>
-                </label>
-              </div>
+            <div className="flex items-center space-x-4">
               <label className="flex items-center">
                 <input
                   type="checkbox"
-                  checked={config.jumboFrames}
-                  onChange={(e) => setConfig({ ...config, jumboFrames: e.target.checked })}
+                  checked={config.daemon}
+                  onChange={(e) => setConfig({ ...config, daemon: e.target.checked })}
                   disabled={serverStatus?.running}
                   className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                 />
-                <span className="ml-2 text-sm text-gray-700">Enable jumbo frames</span>
+                <span className="ml-2 text-sm text-gray-700">Run as daemon</span>
               </label>
+            </div>
+
+            <div className="text-xs text-gray-400 flex items-center gap-1">
+              <Terminal size={12} />
+              <span>Verbose output is always enabled for live log capture</span>
             </div>
 
             {!serverStatus?.running && (
               <Button
                 variant="primary"
                 onClick={handleStart}
-                disabled={isStartDisabled}
+                disabled={loading}
                 className="w-full"
               >
                 <Power size={18} className="inline mr-2" />
@@ -285,24 +342,47 @@ export default function ServerPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {connections.map((conn) => (
-                <ConnectionCard key={conn.testId} connection={conn} />
-              ))}
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {connections.map((conn) => (
+              <ConnectionCard key={conn.testId} connection={conn} />
+            ))}
           </div>
         )}
       </Card>
+
+      {serverStatus?.running && (
+        <Card title="Live Server Output">
+          <div
+            ref={outputRef}
+            className="bg-gray-950 rounded-lg p-4 h-64 overflow-y-auto font-mono text-xs leading-5"
+          >
+            {serverOutput.length === 0 ? (
+              <span className="text-gray-500">Waiting for output...</span>
+            ) : (
+              serverOutput.map((line, i) => (
+                <div key={i} className="text-green-400 whitespace-pre-wrap break-all">{line}</div>
+              ))
+            )}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
 
 function ConnectionCard({ connection }) {
-  const { testId, servers, testType, elapsedSeconds, duration, progress, startedAt } = connection;
+  const { testId, servers, testType, elapsedSeconds, duration, progress, startedAt, subIntervals } = connection;
 
   const serverLabel = Array.isArray(servers) ? servers.join(', ') : String(servers || '');
   const shortId = testId ? testId.replace('test_', '') : 'unknown';
+
+  const latestMbpsByConn = {};
+  if (subIntervals?.intervals?.length > 0) {
+    for (const si of subIntervals.intervals) {
+      latestMbpsByConn[si.connId] = si.mbps;
+    }
+  }
+  const connIds = Object.keys(latestMbpsByConn).map(Number);
 
   return (
     <div className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
@@ -359,6 +439,22 @@ function ConnectionCard({ connection }) {
         </div>
       </div>
 
+      {connIds.length > 0 && (
+        <div className="mt-3 border-t border-gray-100 pt-3">
+          <p className="text-xs text-gray-400 mb-2">Live Mbps per Connection</p>
+          <div className="space-y-1">
+            {connIds.map(id => (
+              <div key={id} className="flex items-center justify-between">
+                <span className="text-xs text-gray-500 font-mono">Conn {id}</span>
+                <span className="text-xs font-semibold text-blue-600 tabular-nums">
+                  {latestMbpsByConn[id].toFixed(1)} Mbps
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {startedAt && (
         <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
           <Clock size={10} />
@@ -385,14 +481,7 @@ function DonutChart({ progress }) {
   return (
     <div className="relative w-[60px] h-[60px]">
       <svg viewBox="0 0 60 60" className="w-full h-full -rotate-90">
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r}
-          fill="none"
-          stroke="#e5e7eb"
-          strokeWidth="6"
-        />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e5e7eb" strokeWidth="6" />
         <circle
           cx={cx}
           cy={cy}

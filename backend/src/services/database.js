@@ -11,7 +11,8 @@ export async function createTest(testData) {
       test_type: testData.testType,
       servers: testData.servers,
       config: testData.config,
-      status: 'pending'
+      status: 'pending',
+      machine_id: testData.machineId || null
     }])
     .select()
     .single();

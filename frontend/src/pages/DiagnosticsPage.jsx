@@ -3,7 +3,7 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import StatusBadge from '../components/StatusBadge';
-import { Activity, AlertTriangle, CheckCircle, Server, Network, Shield, Zap } from 'lucide-react';
+import { Activity, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Server, Network, Shield, Zap } from 'lucide-react';
 import { api } from '../services/api';
 
 export function DiagnosticsPage() {
@@ -156,25 +156,21 @@ export function DiagnosticsPage() {
                   <label className="text-sm font-medium text-gray-600">Path</label>
                   <p className="mt-1 text-sm text-gray-900 font-mono">{binaryInfo.path}</p>
                 </div>
-                {binaryInfo.version && (
-                  <>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Version</label>
-                      <p className="mt-1 text-sm text-gray-900">{binaryInfo.version.version || 'Unknown'}</p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Build Date</label>
-                      <p className="mt-1 text-sm text-gray-900">{binaryInfo.version.buildDate || 'Unknown'}</p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Protocol Version</label>
-                      <p className="mt-1 text-sm text-gray-900">{binaryInfo.version.protocolVersion || 'Unknown'}</p>
-                    </div>
-                  </>
-                )}
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Version</label>
+                  <p className="mt-1 text-sm text-gray-900">{binaryInfo.version?.version || 'Unknown'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Build Date</label>
+                  <p className="mt-1 text-sm text-gray-900">{binaryInfo.version?.buildDate || 'Unknown'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Protocol Version</label>
+                  <p className="mt-1 text-sm text-gray-900">{binaryInfo.version?.protocolVersion || 'Unknown'}</p>
+                </div>
               </div>
 
-              {binaryInfo.version?.optimizations && binaryInfo.version.optimizations.length > 0 && (
+              {binaryInfo.version?.optimizations && binaryInfo.version.optimizations.length > 0 ? (
                 <div>
                   <label className="text-sm font-medium text-gray-600">Optimizations</label>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -185,7 +181,12 @@ export function DiagnosticsPage() {
                     ))}
                   </div>
                 </div>
-              )}
+              ) : binaryInfo.available ? (
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Optimizations</label>
+                  <p className="mt-1 text-sm text-gray-400">None detected</p>
+                </div>
+              ) : null}
 
               {binaryInfo.version?.warnings && binaryInfo.version.warnings.length > 0 && (
                 <div className="mt-6">
@@ -403,7 +404,7 @@ export function DiagnosticsPage() {
 
               <div className="flex gap-3">
                 <Button onClick={runQuickTest} disabled={loading || !targetServer.trim()}>
-                  {loading ? 'Testing...' : 'Run Quick Test (2s)'}
+                  {loading ? 'Testing...' : 'Run Quick Test (5s)'}
                 </Button>
                 <Button onClick={runCompleteDiagnostics} variant="secondary" disabled={loading || !targetServer.trim()}>
                   {loading ? 'Running...' : 'Complete Diagnostics'}

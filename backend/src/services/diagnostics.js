@@ -142,13 +142,15 @@ export async function getUDPConnectionTracking() {
   const tracking = {
     active_connections: [],
     total_udp: 0,
-    udpst_related: 0
+    udpst_related: 0,
+    source: 'none'
   };
 
   const conntrackResult = await runCommand('conntrack', ['-L', '-p', 'udp'], 5000);
-  if (conntrackResult.success) {
+  if (conntrackResult.success && conntrackResult.stdout.trim()) {
     const lines = conntrackResult.stdout.split('\n').filter(l => l.trim());
     tracking.total_udp = lines.length;
+    tracking.source = 'conntrack';
 
     for (const line of lines.slice(0, 50)) {
       if (line.includes('dport=25000') || line.includes('sport=25000')) {
@@ -156,6 +158,28 @@ export async function getUDPConnectionTracking() {
         tracking.active_connections.push(line.trim());
       }
     }
+    return tracking;
+  }
+
+  try {
+    const procUdp = await readFile('/proc/net/udp', 'utf8');
+    const lines = procUdp.split('\n').filter(l => l.trim()).slice(1);
+    tracking.total_udp = lines.length;
+    tracking.source = '/proc/net/udp';
+
+    const udpstPortHex = (25000).toString(16).toUpperCase().padStart(4, '0');
+    for (const line of lines) {
+      const cols = line.trim().split(/\s+/);
+      if (!cols || cols.length < 3) continue;
+      const localAddr = cols[1] || '';
+      const remAddr = cols[2] || '';
+      if (localAddr.includes(`:${udpstPortHex}`) || remAddr.includes(`:${udpstPortHex}`)) {
+        tracking.udpst_related++;
+        tracking.active_connections.push(line.trim());
+      }
+    }
+  } catch (_) {
+    tracking.source = 'unavailable';
   }
 
   return tracking;
@@ -245,7 +269,7 @@ export async function runQuickTest(targetServer, port = 25000, binaryPath) {
   }
 
   return new Promise((resolve) => {
-    const args = ['-d', '-p', port.toString(), '-t', '2', '-f', 'json', targetServer];
+    const args = ['-d', '-p', port.toString(), '-t', '5', '-f', 'json', targetServer];
     const proc = spawn(binaryPath, args, {
       stdio: 'pipe'
     });
@@ -263,9 +287,9 @@ export async function runQuickTest(targetServer, port = 25000, binaryPath) {
 
     const timeoutId = setTimeout(() => {
       proc.kill();
-      result.error = 'Test timeout (5s)';
+      result.error = 'Test timeout (15s)';
       resolve(result);
-    }, 5000);
+    }, 15000);
 
     proc.on('exit', (code) => {
       clearTimeout(timeoutId);

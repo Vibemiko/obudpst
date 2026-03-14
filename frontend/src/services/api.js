@@ -33,6 +33,11 @@ export const api = {
 
     getStatus: () => request('/server/status'),
     getConnections: () => request('/server/connections'),
+    getOutput: (since = 0) => request(`/server/output?since=${since}`),
+  },
+
+  interfaces: {
+    list: () => request('/interfaces'),
   },
 
   client: {
